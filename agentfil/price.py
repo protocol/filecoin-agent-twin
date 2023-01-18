@@ -9,10 +9,10 @@ Do your own research. This is not to be considered as any sort of financial advi
 
 
 requirements:
-    -numpy
-    -yfinace (pip install yahoo finance. This is done to obtain historical data)
-    
+    -numpy (tested with version 1.23.1)
+    -yfinace (tested with version 0.1.87) Feel free to pip install yahoo finance. 
 
+The yfinance package is required to obtain historical data
 
 @author: juan.madrigalcianci
 """
