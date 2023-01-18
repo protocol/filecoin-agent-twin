@@ -22,6 +22,9 @@ class SPAgent(mesa.Agent):
         self.renewed_power = [(cc_power(0), deal_power(0)) for _ in range(self.sim_len_days)]
         self.terminated_power = [(cc_power(0), deal_power(0)) for _ in range(self.sim_len_days)]
         self.scheduled_expire_power = [(cc_power(0), deal_power(0)) for _ in range(self.sim_len_days)]
+        
+        # self.scheduled_expire_pledge = [0 for _ in range(self.sim_len_days)]
+        
         self.t = [start_date + timedelta(days=i) for i in range(self.sim_len_days)]
 
         self.validate()
@@ -33,6 +36,10 @@ class SPAgent(mesa.Agent):
         """
         Make a decision to onboard new power, renew or terminate existing power, or a combination
         based on a utility function
+
+        # NOTE: when we add new power, we need to commensurately update:
+        #  1 - the scheduled-expire-power based on duration
+        #  2 - the scheduled-expire-pledge based on duration?? (or is it 180 days flat?)
 
         WARNING: this implementation of step does common things that should be done by any agent.
         In order to keep implementations clean and streamlined, 
@@ -52,7 +59,8 @@ class SPAgent(mesa.Agent):
             'total_rb': self.scheduled_expire_power[ii][0].amount_bytes,
             'total_qa': self.scheduled_expire_power[ii][1].amount_bytes,
             'terminated_rb': self.terminated_power[ii][0].amount_bytes,
-            'terminated_qa': self.terminated_power[ii][1].amount_bytes
+            'terminated_qa': self.terminated_power[ii][1].amount_bytes,
+            # 'scheduled_expire_pledge': self.scheduled_expire_pledge[ii],
         }
         return out_dict
 
@@ -82,6 +90,7 @@ class SPAgent(mesa.Agent):
                 cc_power(row['terminated_rb']),
                 deal_power(row['terminated_qa'])
             )
+            # self.scheduled_expire_pledge[global_ii] = row['total_pledge']
             
             global_ii += 1
 
@@ -92,6 +101,7 @@ class SPAgent(mesa.Agent):
                 cc_power(row['total_rb']),
                 deal_power(row['total_qa'])
             )
+            # self.scheduled_expire_pledge[global_ii] = row['total_pledge']
 
             global_ii += 1
         
