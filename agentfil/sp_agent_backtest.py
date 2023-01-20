@@ -1,3 +1,4 @@
+from datetime import timedelta
 from . import constants
 from .sp_agent import SPAgent
 from .power import cc_power, deal_power
@@ -55,5 +56,7 @@ class SPAgent_Backtest(SPAgent):
         # vectors were already seeded with the bactesting information, so 
         # effectively the backtesting data already made all of the decisions.
 
-        # call the book-keeping stuff
-        super().step()
+        # call the book-keeping stuff.  We do this manually instead of
+        # calling the super() because we don't want to auto-update the SE power
+        self.current_day += 1
+        self.current_date += timedelta(days=1)
