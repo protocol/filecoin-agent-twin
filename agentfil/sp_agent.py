@@ -73,6 +73,7 @@ class SPAgent(mesa.Agent):
         # we can't vector assign b/c the power vectors are lists of objects, but 
         # this is premature optimization that we can revisit later
         global_ii = (historical_df.iloc[0]['date'] - constants.NETWORK_DATA_START).days
+        ii_start = global_ii
         for _, row in historical_df.iterrows():
             self.onboarded_power[global_ii] = (
                 cc_power(row['day_onboarded_rb_power_pib']),
@@ -93,6 +94,7 @@ class SPAgent(mesa.Agent):
             # self.scheduled_expire_pledge[global_ii] = row['total_pledge']
             
             global_ii += 1
+        # print("Seeding agent: %d from index=%d:%d" % (self.unique_id, ii_start, global_ii))
 
         # add in the SE power
         global_ii = (future_se_df.iloc[0]['date'] - constants.NETWORK_DATA_START).days
@@ -109,22 +111,20 @@ class SPAgent(mesa.Agent):
     def validate(self):
         pass
 
-class SPAgent_Random(SPAgent):
-    def __init__(self, id, historical_power, start_date, current_date, end_date, seed=1234):
-        super().__init__(id, historical_power, start_date, current_date, end_date)
-        self.rng = default_rng(seed)
+# class SPAgent_Random(SPAgent):
+#     def __init__(self, id, historical_power, start_date, end_date, seed=1234):
+#         super().__init__(id, historical_power, start_date, end_date)
+#         self.rng = default_rng(seed)
 
-    def step(self, macro_inputs, sp_inputs):
-        # call the book-keeping stuff
-        super().step(macro_inputs, sp_inputs)
+#     def step(self, filecoin_df):
+#         # call the book-keeping stuff
+#         super().step(filecoin_df)
 
-        # TODO: make decisions for the random agent
-        
+#         # TODO: make decisions for the random agent
 
+# class SPAgent_CCBullish(SPAgent):
+#     def __init__(self, id, historical_power, start_date, end_date):
+#         super().__init__(id, historical_power, start_date, end_date)
 
-class SPAgent_CCBullish(SPAgent):
-    def __init__(self, id, historical_power, start_date, current_date, end_date):
-        super().__init__(id, historical_power, start_date, current_date, end_date)
-
-    def step(self, macro_inputs, sp_inputs):
-        self.current_day += 1
+#     def step(self, filecoin_df):
+#         self.current_day += 1
