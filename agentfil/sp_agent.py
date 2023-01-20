@@ -49,7 +49,7 @@ class SPAgent(mesa.Agent):
         # book-keeping stuff that is common for any type of agent
         # automatically update the SE power based on what was onboarded & renewed
         # update internal representation of day/date
-        
+
         today_onboarded_cc_power = self.onboarded_power[self.current_day][0]
         today_onboarded_deal_power = self.onboarded_power[self.current_day][1]
 
@@ -80,6 +80,8 @@ class SPAgent(mesa.Agent):
             'day_onboarded_qa_power_pib': self.onboarded_power[ii][1].amount_bytes,
             'extended_rb': self.renewed_power[ii][0].amount_bytes,
             'extended_qa': self.renewed_power[ii][1].amount_bytes,
+            'day_onboarded_qa_duration': self.onboarded_power[ii][1].duration,
+            'extended_qa_duration': self.renewed_power[ii][1].duration,
             'total_rb': self.scheduled_expire_power[ii][0].amount_bytes,
             'total_qa': self.scheduled_expire_power[ii][1].amount_bytes,
             'terminated_rb': self.terminated_power[ii][0].amount_bytes,
