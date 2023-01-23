@@ -21,10 +21,14 @@ class SPAgent(mesa.Agent):
         self.onboarded_power = [(cc_power(0), deal_power(0)) for _ in range(self.sim_len_days)]
         self.renewed_power = [(cc_power(0), deal_power(0)) for _ in range(self.sim_len_days)]
         self.terminated_power = [(cc_power(0), deal_power(0)) for _ in range(self.sim_len_days)]
+
+        # NOTE: duration is not relevant for SE power. It is only relevant for onboarded or renewed power
         self.scheduled_expire_power = [(cc_power(0), deal_power(0)) for _ in range(self.sim_len_days)]
-        
-        # self.scheduled_expire_pledge = [0 for _ in range(self.sim_len_days)]
-        
+
+        # this vector is only tracked for dates after the simulation start
+        self.scheduled_expire_pledge_onboard = [0 for _ in range(self.sim_len_days)]
+        self.scheduled_expire_pledge_renew = [0 for _ in range(self.sim_len_days)]
+
         self.t = [start_date + timedelta(days=i) for i in range(self.sim_len_days)]
 
         self.validate()
@@ -32,7 +36,6 @@ class SPAgent(mesa.Agent):
         self.allocate_historical_power(agent_seed)
 
     def step(self):
-        # WARNING: need to update step function to take in inputs
         """
         Make a decision to onboard new power, renew or terminate existing power, or a combination
         based on a utility function
@@ -44,7 +47,32 @@ class SPAgent(mesa.Agent):
         WARNING: this implementation of step does common things that should be done by any agent.
         In order to keep implementations clean and streamlined, 
         """
+        self._bookkeep()
+
+    def _bookkeep(self):
         # book-keeping stuff that is common for any type of agent
+        # automatically update the SE power based on what was onboarded & renewed
+        # update internal representation of day/date
+
+        today_onboarded_cc_power = self.onboarded_power[self.current_day][0]
+        today_onboarded_deal_power = self.onboarded_power[self.current_day][1]
+
+        cc_expire_index = self.current_day + today_onboarded_cc_power.duration
+        deal_expire_index = self.current_day + today_onboarded_deal_power.duration
+
+        self.scheduled_expire_power[cc_expire_index] += today_onboarded_cc_power
+        self.scheduled_expire_power[deal_expire_index] += today_onboarded_deal_power
+
+        # do the same for renewals
+        today_renewed_cc_power = self.renewed_power[self.current_day][0]
+        today_renewed_deal_power = self.renewed_power[self.current_day][1]
+
+        cc_expire_index = self.current_day + today_onboarded_cc_power.duration
+        deal_expire_index = self.current_day + today_onboarded_deal_power.duration
+
+        self.scheduled_expire_power[cc_expire_index] += today_renewed_cc_power
+        self.scheduled_expire_power[deal_expire_index] += today_renewed_deal_power
+
         self.current_day += 1
         self.current_date += timedelta(days=1)
 
@@ -56,6 +84,8 @@ class SPAgent(mesa.Agent):
             'day_onboarded_qa_power_pib': self.onboarded_power[ii][1].amount_bytes,
             'extended_rb': self.renewed_power[ii][0].amount_bytes,
             'extended_qa': self.renewed_power[ii][1].amount_bytes,
+            'day_onboarded_qa_duration': self.onboarded_power[ii][1].duration,
+            'extended_qa_duration': self.renewed_power[ii][1].duration,
             'total_rb': self.scheduled_expire_power[ii][0].amount_bytes,
             'total_qa': self.scheduled_expire_power[ii][1].amount_bytes,
             'terminated_rb': self.terminated_power[ii][0].amount_bytes,
