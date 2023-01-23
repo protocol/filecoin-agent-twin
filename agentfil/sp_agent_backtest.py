@@ -10,8 +10,8 @@ class SPAgent_Backtest(SPAgent):
     historical power information to ensure that the remainder of the simulation
     produces expected results for circulating supply, etc.
     """
-    def __init__(self, id, historical_power, start_date, end_date):
-        super().__init__(id, historical_power, start_date, end_date)
+    def __init__(self, model, id, historical_power, start_date, end_date):
+        super().__init__(model, id, historical_power, start_date, end_date)
 
     def seed_backtest(self, power_df):
         """

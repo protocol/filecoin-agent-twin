@@ -7,8 +7,9 @@ from .power import cc_power, deal_power
 
 
 class SPAgent(mesa.Agent):
-    def __init__(self, agent_id, agent_seed, start_date, end_date):
+    def __init__(self, model, agent_id, agent_seed, start_date, end_date):
         self.unique_id = agent_id  # the field unique_id is required by the framework
+        self.model = model
 
         self.start_date = start_date  # used to get historical data
 
@@ -30,8 +31,6 @@ class SPAgent(mesa.Agent):
         self.scheduled_expire_pledge_renew = [0 for _ in range(self.sim_len_days)]
 
         self.t = [start_date + timedelta(days=i) for i in range(self.sim_len_days)]
-
-        self.validate()
 
         self.allocate_historical_power(agent_seed)
 
@@ -137,9 +136,6 @@ class SPAgent(mesa.Agent):
 
             global_ii += 1
         
-
-    def validate(self):
-        pass
 
 # class SPAgent_Random(SPAgent):
 #     def __init__(self, id, historical_power, start_date, end_date, seed=1234):

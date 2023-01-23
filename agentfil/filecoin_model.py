@@ -20,12 +20,28 @@ def solve_geometric(a, n):
     r = soln[0]
     return r
 
+def distribute_agent_power_geometric_series(num_agents, a=0.2):
+    # use a geometric-series to determine the proportion of power that goes
+    # to each agent
+    r = solve_geometric(a, num_agents)
+
+    agent_power_distributions = []
+    for i in range(num_agents):
+        agent_power_pct = a*(r**i)
+        agent_power_distributions.append(agent_power_pct)
+    return agent_power_distributions
+
 class FilecoinModel(mesa.Model):
     def __init__(self, n, start_date, end_date, 
-                 agent_types=None, compute_cs_from_networkdatastart=True, use_historical_gas=False):
+                 agent_types=None, agent_kwargs_list=None, agent_power_distributions=None,
+                 compute_cs_from_networkdatastart=True, use_historical_gas=False):
         """
         agent_types: a vector of the types of agents to instantiate, if None then the 
                      default is to instantiate all agents as SPAgent
+        agent_kwargs_list: a list of dictionaries, each dictionary contains keywords to configure
+                            the instantiated agent.
+        agent_power_distributions: a vector of the proportion of power that goes to each agent. If None,
+                            will be computed using the default function `distribute_agent_power_geometric_series`
         compute_cs_from_networkdatastart: if True, then the circulating supply is computed from the
                                start of network data (2021-03-15). If False, then the circulating supply
                                is computed from the simulation start date and pre-seeded with
@@ -42,6 +58,9 @@ class FilecoinModel(mesa.Model):
         self.num_agents = n
         self.schedule = mesa.time.SimultaneousActivation(self)
 
+        if agent_power_distributions is None:
+            self.agent_power_distributions = distribute_agent_power_geometric_series(n)
+
         self.compute_cs_from_networkdatastart = compute_cs_from_networkdatastart
         self.use_historical_gas = use_historical_gas
 
@@ -57,12 +76,26 @@ class FilecoinModel(mesa.Model):
         self.rbp0 = None
         self.qap0 = None
 
+        self.validate(agent_kwargs_list)
+
         self.initialize_network_description_df()
         self.download_historical_data()
-        self.seed_agents(agent_types=agent_types)
+        self.seed_agents(agent_types=agent_types, agent_kwargs_list=agent_kwargs_list)
         self.fast_forward_to_simulation_start()
 
+    def validate(self, agent_kwargs_list):
+        if self.start_date < constants.NETWORK_DATA_START:
+            raise ValueError(f"start_date must be after {constants.NETWORK_DATA_START}")
+        if self.end_date < self.start_date:
+            raise ValueError("end_date must be after start_date")
+        assert len(self.agent_power_distributions) == self.num_agents
+        assert np.isclose(sum(self.agent_power_distributions), 1.0)
+
+        assert len(self.agent_power_distributions) == self.num_agents
+        assert len(agent_kwargs_list) == self.num_agents
+
     def download_historical_data(self):
+        # TODO: have an offline method to speed this up ... otherwise takes 30s to initialize the model
         historical_stats = data.get_historical_network_stats(
             constants.NETWORK_DATA_START,
             self.start_date,
@@ -105,16 +138,9 @@ class FilecoinModel(mesa.Model):
 
         self.zero_cum_capped_power = data.get_cum_capped_rb_power(constants.NETWORK_DATA_START)
 
-    def seed_agents(self, agent_types=None):
-        self.download_historical_data()
-        
-        # use a geometric-series to determine the proportion of power that goes
-        # to each agent
-        a = 0.2
-        r = solve_geometric(a, self.num_agents)
-        
+    def seed_agents(self, agent_types=None, agent_kwargs_list=None):
         for ii in range(self.num_agents):
-            agent_power_pct = a*(r**ii)
+            agent_power_pct = self.agent_power_distributions[ii]
             agent_historical_df = self.df_historical.drop('date', axis=1) * agent_power_pct
             agent_historical_df['date'] = self.df_historical['date']
             agent_future_df = self.df_future.drop('date', axis=1) * agent_power_pct
@@ -127,8 +153,11 @@ class FilecoinModel(mesa.Model):
                 agent_cls = agent_types[ii]
             else:
                 agent_cls = sp_agent.SPAgent
-            # TODO: need to have different seed functions as a helper utility
-            agent = agent_cls(ii, agent_seed, self.start_date, self.end_date)
+            
+            agent_kwargs = {}
+            if agent_kwargs_list is not None:
+                agent_kwargs = agent_kwargs_list[ii]
+            agent = agent_cls(self, ii, agent_seed, self.start_date, self.end_date, **agent_kwargs)
 
             self.schedule.add(agent)
             self.agents.append(
