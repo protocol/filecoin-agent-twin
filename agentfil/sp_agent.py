@@ -24,7 +24,11 @@ class SPAgent(mesa.Agent):
 
         # NOTE: duration is not relevant for SE power. It is only relevant for onboarded or renewed power
         self.scheduled_expire_power = [(cc_power(0), deal_power(0)) for _ in range(self.sim_len_days)]
-        
+
+        # this vector is only tracked for dates after the simulation start
+        self.scheduled_expire_pledge_onboard = [0 for _ in range(self.sim_len_days)]
+        self.scheduled_expire_pledge_renew = [0 for _ in range(self.sim_len_days)]
+
         self.t = [start_date + timedelta(days=i) for i in range(self.sim_len_days)]
 
         self.validate()
