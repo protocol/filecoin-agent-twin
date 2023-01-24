@@ -55,6 +55,7 @@ class GreedyAgent(SPAgent):
 
         self.validate()
         self.get_exchange_rate()
+        self.predict_future_exchange_rate()
 
     def validate(self):
         if self.accounting_df is None:
@@ -62,7 +63,7 @@ class GreedyAgent(SPAgent):
         # check the length of the usd_df and the bounds of the dates
         if self.accounting_df.shape[0] != (self.end_date - self.start_date).days:
             raise ValueError("The length of the usd_df must be the same as the simulation length.")
-        if self.accounting_df.iloc[0]['date'] != self.start_date:
+        if pd.to_datetime(self.accounting_df.iloc[0]['date']) != pd.to_datetime(self.start_date):
             raise ValueError("The first date in the usd_df must be the same as the start_date.")
         # if self.accounting_df.iloc[-1]['date'] != self.end_date:
         #     raise ValueError("The last date in the usd_df must be the same as the end_date.")
@@ -79,26 +80,41 @@ class GreedyAgent(SPAgent):
         ts = cg.get_coin_market_chart_range_by_id(id=id_,
                                                   vs_currency='usd',
                                                   from_timestamp=time.mktime(constants.NETWORK_DATA_START.timetuple()),
-                                                  to_timestamp=time.mktime(self.start_date.timetuple()))
+                                                  to_timestamp=time.mktime((self.start_date-timedelta(days=1)).timetuple()))
 
         self.usd_fil_exchange_df = pd.DataFrame(
             {
                 "coin" : id_,
-                "time_s" : np.array(ts['prices']).T[0],
-                "time_d" : list(map(change_t, np.array(ts['prices']).T[0])),
+                "date" : list(map(change_t, np.array(ts['prices']).T[0])),
                 "price" : np.array(ts['prices']).T[1],
                 "market_caps" : np.array(ts['market_caps']).T[1], 
                 "total_volumes" : np.array(ts['total_volumes']).T[1]
             }
         )
-        self.usd_fil_exchange_df['time_d'] = pd.to_datetime(self.usd_fil_exchange_df['time_d'])
+        self.usd_fil_exchange_df['date'] = pd.to_datetime(self.usd_fil_exchange_df['date']).dt.date
+
+    def predict_future_exchange_rate(self):
+        # update the prediction to something better
+        last_price = self.usd_fil_exchange_df.iloc[-1]['price']
+        remaining_len = (self.end_date - self.start_date).days + 1
+        future_price_df = pd.DataFrame(
+            {
+                "coin" : 'filecoin',
+                "date" : pd.date_range(self.start_date, self.end_date, freq='D'),
+                "price" : np.random.normal(last_price, 0.5, remaining_len),
+                "market_caps" : np.random.normal(last_price, 0.5, remaining_len),
+                "total_volumes" : np.random.normal(last_price, 0.5, remaining_len)
+            }
+        )
+        future_price_df['date'] = pd.to_datetime(future_price_df['date']).dt.date
+        self.usd_fil_exchange_df = pd.concat([self.usd_fil_exchange_df, future_price_df], ignore_index=True)
                                              
 
     def get_max_onboarding_power(self, date_in):
         accounting_df_idx = self.accounting_df[self.accounting_df['date'] == date_in].index[0]
         available_USD = self.accounting_df.loc[accounting_df_idx, 'USD'] - self.accounting_df.loc[0:accounting_df_idx, 'funds_used'].sum()
         # TODO: need to address what happens if we don't have the exchange rate for the day (either data is missing or in the future)
-        current_exchange_rate = self.usd_fil_exchange_df.loc[self.usd_fil_exchange_df['time_d'] == date_in, 'price'].values[0]
+        current_exchange_rate = self.usd_fil_exchange_df.loc[self.usd_fil_exchange_df['date'] == date_in, 'price'].values[0]
         available_FIL = available_USD / current_exchange_rate
         available_FIL_after_fees = available_FIL * self.FIL_USD_EXCHANGE_EFFICIENCY
 
@@ -116,7 +132,7 @@ class GreedyAgent(SPAgent):
             # add in a factor to account for interest rates, fees, etc.
             roi_estimate = roi_estimate * self.ROI_EFFICIENCY_FACTOR
             
-            current_exchange_rate = self.usd_fil_exchange_df.loc[self.usd_fil_exchange_df['time_d'] == self.current_date, 'price'].values[0]
+            current_exchange_rate = self.usd_fil_exchange_df.loc[self.usd_fil_exchange_df['date'] == self.current_date, 'price'].values[0]
             # Estimate future USD/FIL exchange rate at time t+d
             future_exchange_rate = current_exchange_rate + np.random.normal(0, 0.5)
         

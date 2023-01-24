@@ -19,14 +19,14 @@ class SPAgent(mesa.Agent):
         self.sim_len_days = (self.end_date - constants.NETWORK_DATA_START).days
         self.current_day = (self.current_date - constants.NETWORK_DATA_START).days
 
-        self.onboarded_power = [(cc_power(0), deal_power(0)) for _ in range(self.sim_len_days)]
-        self.renewed_power = [(cc_power(0), deal_power(0)) for _ in range(self.sim_len_days)]
-        self.terminated_power = [(cc_power(0), deal_power(0)) for _ in range(self.sim_len_days)]
+        self.onboarded_power = [[cc_power(0), deal_power(0)] for _ in range(self.sim_len_days)]
+        self.renewed_power = [[cc_power(0), deal_power(0)] for _ in range(self.sim_len_days)]
+        self.terminated_power = [[cc_power(0), deal_power(0)] for _ in range(self.sim_len_days)]
 
         # NOTE: duration is not relevant for SE power. It is only relevant for onboarded or renewed power
-        self.scheduled_expire_power = [(cc_power(0), deal_power(0)) for _ in range(self.sim_len_days)]
+        self.scheduled_expire_power = [[cc_power(0), deal_power(0)] for _ in range(self.sim_len_days)]
 
-        # this vector is only tracked for dates after the simulation start
+        # TODO: track this vector
         self.scheduled_expire_pledge_onboard = [0 for _ in range(self.sim_len_days)]
         self.scheduled_expire_pledge_renew = [0 for _ in range(self.sim_len_days)]
 
@@ -59,8 +59,10 @@ class SPAgent(mesa.Agent):
         cc_expire_index = self.current_day + today_onboarded_cc_power.duration
         deal_expire_index = self.current_day + today_onboarded_deal_power.duration
 
-        self.scheduled_expire_power[cc_expire_index] += today_onboarded_cc_power
-        self.scheduled_expire_power[deal_expire_index] += today_onboarded_deal_power
+        if cc_expire_index < self.sim_len_days:
+            self.scheduled_expire_power[cc_expire_index][0] += today_onboarded_cc_power
+        if deal_expire_index < self.sim_len_days:
+            self.scheduled_expire_power[deal_expire_index][1] += today_onboarded_deal_power
 
         # do the same for renewals
         today_renewed_cc_power = self.renewed_power[self.current_day][0]
@@ -69,8 +71,10 @@ class SPAgent(mesa.Agent):
         cc_expire_index = self.current_day + today_onboarded_cc_power.duration
         deal_expire_index = self.current_day + today_onboarded_deal_power.duration
 
-        self.scheduled_expire_power[cc_expire_index] += today_renewed_cc_power
-        self.scheduled_expire_power[deal_expire_index] += today_renewed_deal_power
+        if cc_expire_index < self.sim_len_days:
+            self.scheduled_expire_power[cc_expire_index][0] += today_renewed_cc_power
+        if deal_expire_index < self.sim_len_days:
+            self.scheduled_expire_power[deal_expire_index][1] += today_renewed_deal_power
 
         self.current_day += 1
         self.current_date += timedelta(days=1)
@@ -104,22 +108,22 @@ class SPAgent(mesa.Agent):
         global_ii = (historical_df.iloc[0]['date'] - constants.NETWORK_DATA_START).days
         ii_start = global_ii
         for _, row in historical_df.iterrows():
-            self.onboarded_power[global_ii] = (
+            self.onboarded_power[global_ii] = [
                 cc_power(row['day_onboarded_rb_power_pib']),
                 deal_power(row['day_onboarded_qa_power_pib'])
-            )
-            self.renewed_power[global_ii] = (
+            ]
+            self.renewed_power[global_ii] = [
                 cc_power(row['extended_rb']),
                 deal_power(row['extended_qa'])
-            )
-            self.scheduled_expire_power[global_ii] = (
+            ]
+            self.scheduled_expire_power[global_ii] = [
                 cc_power(row['total_rb']),
                 deal_power(row['total_qa'])
-            )
-            self.terminated_power[global_ii] = (
+            ]
+            self.terminated_power[global_ii] = [
                 cc_power(row['terminated_rb']),
                 deal_power(row['terminated_qa'])
-            )
+            ]
             # self.scheduled_expire_pledge[global_ii] = row['total_pledge']
             
             global_ii += 1
@@ -128,29 +132,10 @@ class SPAgent(mesa.Agent):
         # add in the SE power
         global_ii = (future_se_df.iloc[0]['date'] - constants.NETWORK_DATA_START).days
         for _, row in future_se_df.iterrows():
-            self.scheduled_expire_power[global_ii] = (
+            self.scheduled_expire_power[global_ii] = [
                 cc_power(row['total_rb']),
                 deal_power(row['total_qa'])
-            )
+            ]
             # self.scheduled_expire_pledge[global_ii] = row['total_pledge']
 
             global_ii += 1
-        
-
-# class SPAgent_Random(SPAgent):
-#     def __init__(self, id, historical_power, start_date, end_date, seed=1234):
-#         super().__init__(id, historical_power, start_date, end_date)
-#         self.rng = default_rng(seed)
-
-#     def step(self, filecoin_df):
-#         # call the book-keeping stuff
-#         super().step(filecoin_df)
-
-#         # TODO: make decisions for the random agent
-
-# class SPAgent_CCBullish(SPAgent):
-#     def __init__(self, id, historical_power, start_date, end_date):
-#         super().__init__(id, historical_power, start_date, end_date)
-
-#     def step(self, filecoin_df):
-#         self.current_day += 1
