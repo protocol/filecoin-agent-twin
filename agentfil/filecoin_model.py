@@ -23,6 +23,9 @@ def solve_geometric(a, n):
 def distribute_agent_power_geometric_series(num_agents, a=0.2):
     # use a geometric-series to determine the proportion of power that goes
     # to each agent
+    if num_agents == 1:
+        return [1.0]
+    
     r = solve_geometric(a, num_agents)
 
     agent_power_distributions = []
@@ -92,7 +95,8 @@ class FilecoinModel(mesa.Model):
         assert np.isclose(sum(self.agent_power_distributions), 1.0)
 
         assert len(self.agent_power_distributions) == self.num_agents
-        assert len(agent_kwargs_list) == self.num_agents
+        if agent_kwargs_list is not None:
+            assert len(agent_kwargs_list) == self.num_agents
 
     def download_historical_data(self):
         # TODO: have an offline method to speed this up ... otherwise takes 30s to initialize the model
@@ -191,6 +195,7 @@ class FilecoinModel(mesa.Model):
     def fast_forward_to_simulation_start(self):
         current_date = constants.NETWORK_DATA_START
         day_power_stats_vec = []
+        print('Fast forwarding power to simulation start date...', self.start_date)
         while current_date < self.start_date:
             day_power_stats = self.compute_macro(current_date)
             day_power_stats_vec.append(day_power_stats)
@@ -235,6 +240,7 @@ class FilecoinModel(mesa.Model):
 
         # add in future SE power
         se_power_stats_vec = []
+        print('Computing Scheduled Expirations from: ', self.current_date, ' to: ', self.max_date_se_power)
         while current_date < self.max_date_se_power:
             se_power_stats = self.compute_macro(current_date)
             se_power_stats_vec.append(se_power_stats)
@@ -295,12 +301,20 @@ class FilecoinModel(mesa.Model):
             self.filecoin_df.loc[final_historical_data_idx+1, ["network_locked_reward"]] = locked_fil_zero / 2.0
             self.filecoin_df.loc[final_historical_data_idx+1, ["network_locked"]] = locked_fil_zero
 
+        ############################################################################################################
+        day_onboarded_power_QAP = self.filecoin_df.loc[day_idx, "day_onboarded_qap_pib"] * constants.PIB   # in bytes
+        network_QAP = self.filecoin_df["total_qa_power_eib"] * constants.EIB                  # in bytes
+
+        # NOTE: this only works if compute_cs_from_networkdatastart is set to True
+        self.filecoin_df['day_pledge_per_QAP'] = constants.SECTOR_SIZE * (self.filecoin_df['day_locked_pledge']-self.filecoin_df['day_renewed_pledge'])/day_onboarded_power_QAP
+        self.filecoin_df['day_rewards_per_sector'] = constants.SECTOR_SIZE * self.filecoin_df['day_network_reward'] / network_QAP
+        
+
     def compute_macro(self, date_in):
         # compute Macro econometrics (Power statistics)
         total_rb_delta, total_qa_delta = 0, 0
         total_onboarded_rb_delta, total_renewed_rb_delta, total_se_rb_delta, total_terminated_rb_delta = 0, 0, 0, 0
         total_onboarded_qa_delta, total_renewed_qa_delta, total_se_qa_delta, total_terminated_qa_delta = 0, 0, 0, 0
-        # print('Computing Macro for date:', date_in)
         for agent_info in self.agents:
             agent = agent_info['agent']
             agent_day_power_stats = agent.get_power_at_date(date_in)
