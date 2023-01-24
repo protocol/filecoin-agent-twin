@@ -42,6 +42,13 @@ class GreedyAgent(SPAgent):
 
     This is locally optimal behavior but does not consider how ROI may change
     in order to be more strategic about when to onboard power.
+
+    Questions:
+    1) Do our current metrics distinguish between Deal/CC? I don’t see how they do, but I think we need a metric of that sort to determine which kind of 
+    2) How to determine onboard vs. renew?
+        Perhaps we decide we have total X power we’d like to put forward at time=T and we split that between renewal & onboard.
+        Decision may be easier if we have metrics to distinguish between CC & Deal, b/c only CC can be renewed.
+
     """
 
     def __init__(self, model, id, historical_power, start_date, end_date, accounting_df=None):
