@@ -287,8 +287,9 @@ class FilecoinModel(mesa.Model):
             self.filecoin_df.loc[start_idx, "network_locked_reward"] = locked_fil_zero / 2.0
             self.filecoin_df.loc[start_idx, "network_locked"] = locked_fil_zero
             self.filecoin_df.loc[start_idx, 'circ_supply'] = supply_df.iloc[start_idx]['circulating_fil']
-            for day_idx in range(start_idx+1, end_idx+1):
+            for day_idx in range(start_idx+1, end_idx):
                 self._update_circulating_supply(update_day=day_idx)
+                self._update_generated_quantities(update_day=day_idx)
         else:
             # NOTE: cum_network_reward was computed above from power inputs, use that rather than historical data
             # NOTE: vesting was computed above and is a static model, so use the precomputed vesting information
@@ -362,7 +363,8 @@ class FilecoinModel(mesa.Model):
         day_idx = self.current_day if day_idx is None else day_idx
 
         self.filecoin_df.loc[day_idx, 'day_onboarded_rbp_pib'] = day_macro_info['day_onboarded_rbp_pib']
-        self.filecoin_df.loc[day_idx, 'day_onboarded_qap_pib'] = day_macro_info['day_onboarded_qap_pib']
+        ## @tmellan - min to prevent divide by 0 error - is this OK?
+        self.filecoin_df.loc[day_idx, 'day_onboarded_qap_pib'] = max(day_macro_info['day_onboarded_qap_pib'], constants.MIN_VALUE)
         self.filecoin_df.loc[day_idx, 'day_renewed_rbp_pib'] = day_macro_info['day_renewed_rbp_pib']
         self.filecoin_df.loc[day_idx, 'day_renewed_qap_pib'] = day_macro_info['day_renewed_qap_pib']
         self.filecoin_df.loc[day_idx, 'day_sched_expire_rbp_pib'] = day_macro_info['day_sched_expire_rbp_pib']
@@ -373,7 +375,9 @@ class FilecoinModel(mesa.Model):
         self.filecoin_df.loc[day_idx, 'day_network_qap_pib'] = day_macro_info['day_network_qap_pib']
 
         self.filecoin_df.loc[day_idx, 'total_raw_power_eib'] = self.filecoin_df.loc[day_idx, 'day_network_rbp_pib'] / 1024.0 + self.filecoin_df.loc[day_idx-1, 'total_raw_power_eib']
-        self.filecoin_df.loc[day_idx, 'total_qa_power_eib'] = self.filecoin_df.loc[day_idx, 'day_network_qap_pib'] / 1024.0 + self.filecoin_df.loc[day_idx-1, 'total_qa_power_eib']
+        ## @tmellan - min to prevent divide by 0 error - is this OK?
+        self.filecoin_df.loc[day_idx, 'total_qa_power_eib'] = max(self.filecoin_df.loc[day_idx, 'day_network_qap_pib'] / 1024.0 + self.filecoin_df.loc[day_idx-1, 'total_qa_power_eib'], constants.MIN_VALUE)
+
 
     def _update_minting(self, day_idx=None):
         day_idx = self.current_day if day_idx is None else day_idx
@@ -539,15 +543,6 @@ class FilecoinModel(mesa.Model):
         self.filecoin_df.loc[day_idx, 'day_pledge_per_QAP'] = constants.SECTOR_SIZE * (day_locked_pledge-day_renewed_pledge)/day_onboarded_power_QAP
         self.filecoin_df.loc[day_idx, 'day_rewards_per_sector'] = constants.SECTOR_SIZE * day_network_reward / network_QAP
         
-        # filecoin_df_subset = self.filecoin_df.iloc[day_idx:day_idx+self.sector_duration]
-        # # NOTE: this rolling sum is inefficient to compute every tick. Convert this to an interative formula        
-        # return_sector_1y = filecoin_df_subset['day_rewards_per_sector'].sum()
-        # roi_1y = return_sector_1y / self.filecoin_df.loc[day_idx, 'day_pledge_per_QAP']
-        # self.filecoin_df.loc[day_idx, '1y_return_per_sector'] = return_sector_1y
-        # self.filecoin_df.loc[day_idx, '1y_sector_roi'] = roi_1y
-        
-        # To put ROI into these calculations, we need to estimate future expected reward
-        # we can do that with some sort of prediction algorithm
         
     def step(self):
         # step agents

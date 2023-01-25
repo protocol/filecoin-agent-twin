@@ -6,6 +6,8 @@ from .sp_agent import SPAgent
 from .power import cc_power, deal_power
 from .filecoin_model import apply_qa_multiplier
 
+from scenario_generator.gbm_forecast import gbm_forecast
+
 import copy
 import numpy as np
 import pandas as pd
@@ -126,12 +128,26 @@ class GreedyAgent(SPAgent):
         # update the prediction to something better
         last_price = self.usd_fil_exchange_df.iloc[-1]['price']
         remaining_len = (self.end_date - self.start_date).days + 1
+
+        # use Geometric Brownian Motion to predict future prices, market caps, and total volumes
+        # TODO: run prediction on market-cap & volume, but this information is not currently 
+        # used by this agent, so I left it out currently
+        x = self.usd_fil_exchange_df['price'].values
+        forecast_length = remaining_len
+        num_mc = 100
+        seed_base = 1111
+        future_prices_vec = []
+        for ii in range(num_mc):
+            seed_in = seed_base + ii
+            y = gbm_forecast(x, forecast_length, seed=seed_in)
+            future_prices_vec.append(y)
+        future_median_price = np.median(np.asarray(future_prices_vec), axis=0)
+
         future_price_df = pd.DataFrame(
             {
                 "coin" : 'filecoin',
                 "date" : pd.date_range(self.start_date, self.end_date, freq='D'),
-                # "price" : np.random.normal(last_price, 0.5, remaining_len),
-                "price" : np.ones(remaining_len)*last_price,
+                "price" : future_median_price,
                 "market_caps" : np.random.normal(last_price, 0.5, remaining_len),
                 "total_volumes" : np.random.normal(last_price, 0.5, remaining_len)
             }
@@ -150,8 +166,12 @@ class GreedyAgent(SPAgent):
 
         filecoin_df_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(date_in)].index[0]
         # NOTE: we need to use previous day b/c the full day's metrics haven't been aggregated yet
-        pledge_per_pib = self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_pledge_per_QAP'] / constants.SECTOR_SIZE * constants.PIB
+        prev_day_pledge_per_QAP = self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_pledge_per_QAP']
+        if prev_day_pledge_per_QAP < constants.MIN_VALUE:
+            prev_day_pledge_per_QAP = constants.MIN_VALUE
+        pledge_per_pib = (prev_day_pledge_per_QAP / constants.SECTOR_SIZE) * constants.PIB
         pibs_to_onboard = available_FIL_after_fees / pledge_per_pib
+        # print(available_USD, available_FIL, available_FIL_after_fees, prev_day_pledge_per_QAP, pledge_per_pib, pibs_to_onboard)
         return pibs_to_onboard
 
 
@@ -160,10 +180,11 @@ class GreedyAgent(SPAgent):
         profitability_vec = []
         # TODO: take into account duration in all calculations. currently we use random noise to simulate this
         filecoin_df_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(self.current_date)].index[0]
+        prev_day_pledge_per_QAP = self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_pledge_per_QAP']
         for d in self.duration_vec:
             # Estimate Instantaneous ROI and use that as future ROI
             # NOTE: we need to use yesterday's metrics b/c today's haven't yet been aggregated by the system yet
-            roi_estimate = self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_rewards_per_sector'] / self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_pledge_per_QAP']
+            roi_estimate = self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_rewards_per_sector'] / prev_day_pledge_per_QAP
             
             # add in a factor to account for interest rates, fees, etc.
             roi_estimate = roi_estimate * self.ROI_EFFICIENCY_FACTOR
@@ -201,7 +222,8 @@ class GreedyAgent(SPAgent):
             max_possible_power = self.get_max_onboarding_power_pib(self.current_date)
 
             # of the maximum available to onboard, choose a certain amount
-            rb_to_onboard = max_possible_power * np.random.beta(2, 2)
+            # TODO: create a random seed here ... 
+            rb_to_onboard = min(max_possible_power * np.random.beta(2, 2), constants.MAX_DAY_ONBOARD_RBP_PIB)
 
             # put all that into deal power
             qa_to_onboard = apply_qa_multiplier(rb_to_onboard)
@@ -211,8 +233,15 @@ class GreedyAgent(SPAgent):
             # TODO: update to: put as much as possible into deal-power, and the remainder into CC power (renew first)
 
             # update local representation of available funds
-            funds_used = rb_to_onboard * self.model.filecoin_df.loc[self.current_day, 'day_pledge_per_QAP'] * current_exchange_rate
+            # NOTE: this is a rough approximation b/c we use previous day's pledge.  In reality, the network will 
+            # charge the correct amount after it has aggregated all the power for the day, but we keep things simple
+            # for now.
+            pledge_per_pib = (prev_day_pledge_per_QAP / constants.SECTOR_SIZE) * constants.PIB
+            funds_used = rb_to_onboard * pledge_per_pib * current_exchange_rate
             self.agent_info_df.loc[agent_df_idx, 'funds_used'] += funds_used
+            # print(max_possible_power, rb_to_onboard, qa_to_onboard, 
+            #       self.model.filecoin_df.loc[self.current_day, 'day_pledge_per_QAP'], 
+            #       best_duration, funds_used, current_exchange_rate)
 
             # bookkeeping to track/debug agents
             self.agent_info_df.loc[agent_df_idx, 'cc_onboarded'] = rb_to_onboard
