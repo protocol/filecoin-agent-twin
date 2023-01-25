@@ -4,6 +4,7 @@ import datetime as dt
 from . import constants
 from .sp_agent import SPAgent
 from .power import cc_power, deal_power
+from .filecoin_model import apply_qa_multiplier
 
 import copy
 import numpy as np
@@ -56,18 +57,17 @@ class GreedyAgent(SPAgent):
         super().__init__(model, id, historical_power, start_date, end_date)
         
         self.duration_vec = [6, 12, 36, 60]
-        self.accounting_df = accounting_df
 
         self.FIL_USD_EXCHANGE_EFFICIENCY = 0.7
         self.ROI_EFFICIENCY_FACTOR = 0.7  # a simple model to account for gas fees and opex
 
-        self.validate()
+        self.validate(accounting_df)
         self.get_exchange_rate()
         self.predict_future_exchange_rate()
 
         # good for debugging agent actions.  
         # consider paring it down when not debugging for simulation speed
-        self.agent_info_df = copy.copy(self.accounting_df)
+        self.agent_info_df = copy.copy(accounting_df)
         self.agent_info_df['roi_estimate_6mo'] = 0
         self.agent_info_df['roi_estimate_1y'] = 0
         self.agent_info_df['roi_estimate_3y'] = 0
@@ -84,24 +84,24 @@ class GreedyAgent(SPAgent):
         self.agent_info_df['deal_renewed'] = 0
         self.agent_info_df['deal_onboarded_duration'] = 0
         self.agent_info_df['deal_renewed_duration'] = 0
+        self.agent_info_df['funds_used'] = 0
 
 
-    def validate(self):
-        if self.accounting_df is None:
+    def validate(self, accounting_df):
+        if accounting_df is None:
             raise ValueError("The accounting_df must be specified.")
         # check the length of the usd_df and the bounds of the dates
-        if self.accounting_df.shape[0] != (self.end_date - self.start_date).days:
+        if accounting_df.shape[0] != (self.end_date - self.start_date).days:
             raise ValueError("The length of the usd_df must be the same as the simulation length.")
-        if pd.to_datetime(self.accounting_df.iloc[0]['date']) != pd.to_datetime(self.start_date):
+        if pd.to_datetime(accounting_df.iloc[0]['date']) != pd.to_datetime(self.start_date):
             raise ValueError("The first date in the usd_df must be the same as the start_date.")
         # if self.accounting_df.iloc[-1]['date'] != self.end_date:
         #     raise ValueError("The last date in the usd_df must be the same as the end_date.")
         
-        if 'date' not in self.accounting_df.columns:
+        if 'date' not in accounting_df.columns:
             raise ValueError("The usd_df must have a date column.")
-        if 'USD' not in self.accounting_df.columns:
+        if 'USD' not in accounting_df.columns:
             raise ValueError("The usd_df must have a USD column.")
-        self.accounting_df['funds_used'] = 0
 
     def get_exchange_rate(self, id_='filecoin'):
         cg = CoinGeckoAPI()
@@ -141,8 +141,8 @@ class GreedyAgent(SPAgent):
                                              
 
     def get_max_onboarding_power_pib(self, date_in):
-        accounting_df_idx = self.accounting_df[pd.to_datetime(self.accounting_df['date']) == pd.to_datetime(date_in)].index[0]
-        available_USD = self.accounting_df.loc[accounting_df_idx, 'USD'] - self.accounting_df.loc[0:accounting_df_idx, 'funds_used'].sum()
+        agent_info_df_idx = self.agent_info_df[pd.to_datetime(self.agent_info_df['date']) == pd.to_datetime(date_in)].index[0]
+        available_USD = self.agent_info_df.loc[agent_info_df_idx, 'USD'] - self.agent_info_df.loc[0:agent_info_df_idx, 'funds_used'].sum()
         
         current_exchange_rate = self.usd_fil_exchange_df.loc[pd.to_datetime(self.usd_fil_exchange_df['date']) == pd.to_datetime(date_in), 'price'].values[0]
         available_FIL = available_USD / current_exchange_rate
@@ -150,8 +150,9 @@ class GreedyAgent(SPAgent):
 
         filecoin_df_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(date_in)].index[0]
         # NOTE: we need to use previous day b/c the full day's metrics haven't been aggregated yet
-        sectors_available_to_onboard = available_FIL_after_fees / self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_pledge_per_QAP']
-        return sectors_available_to_onboard * constants.SECTOR_SIZE / constants.PIB
+        pledge_per_pib = self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_pledge_per_QAP'] / constants.SECTOR_SIZE * constants.PIB
+        pibs_to_onboard = available_FIL_after_fees / pledge_per_pib
+        return pibs_to_onboard
 
 
     def step(self):
@@ -200,22 +201,24 @@ class GreedyAgent(SPAgent):
             max_possible_power = self.get_max_onboarding_power_pib(self.current_date)
 
             # of the maximum available to onboard, choose a certain amount
-            power_to_onboard = max_possible_power * np.random.beta(2, 2)
+            rb_to_onboard = max_possible_power * np.random.beta(2, 2)
 
             # put all that into deal power
-            # TODO: I think I need to apply the quality multiplier here
-            self.onboarded_power[self.current_day][1] += deal_power(power_to_onboard, best_duration)
+            qa_to_onboard = apply_qa_multiplier(rb_to_onboard)
+            self.onboarded_power[self.current_day][0] += cc_power(rb_to_onboard, best_duration)
+            self.onboarded_power[self.current_day][1] += deal_power(qa_to_onboard, best_duration)
 
-            # update to: put as much as possible into deal-power, and the remainder into CC power (renew first)
+            # TODO: update to: put as much as possible into deal-power, and the remainder into CC power (renew first)
 
             # update local representation of available funds
-            funds_used = power_to_onboard * self.model.filecoin_df.loc[self.current_day, 'day_pledge_per_QAP'] * current_exchange_rate
-            self.accounting_df.loc[agent_df_idx, 'funds_used'] += funds_used
-
-            # bookkeeping to debug agents later
-            self.agent_info_df.loc[agent_df_idx, 'deal_onboarded'] = power_to_onboard
-            self.agent_info_df.loc[agent_df_idx, 'deal_onboarded_duration'] = best_duration
+            funds_used = rb_to_onboard * self.model.filecoin_df.loc[self.current_day, 'day_pledge_per_QAP'] * current_exchange_rate
             self.agent_info_df.loc[agent_df_idx, 'funds_used'] += funds_used
+
+            # bookkeeping to track/debug agents
+            self.agent_info_df.loc[agent_df_idx, 'cc_onboarded'] = rb_to_onboard
+            self.agent_info_df.loc[agent_df_idx, 'cc_onboarded_duration'] = best_duration
+            self.agent_info_df.loc[agent_df_idx, 'deal_onboarded'] = qa_to_onboard
+            self.agent_info_df.loc[agent_df_idx, 'deal_onboarded_duration'] = best_duration
 
         # update when the onboarded power is scheduled to expire
         super().step()

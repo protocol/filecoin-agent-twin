@@ -34,6 +34,15 @@ def distribute_agent_power_geometric_series(num_agents, a=0.2):
         agent_power_distributions.append(agent_power_pct)
     return agent_power_distributions
 
+
+def apply_qa_multiplier(power_in, fil_plus_multipler=10, date_in=None, sdm=None, sdm_kwargs=None):
+    if sdm is None:
+        return power_in * fil_plus_multipler
+    else:
+        sdm_multiplier = sdm(power_in, **sdm_kwargs)
+        return power_in * sdm_multiplier * fil_plus_multipler
+
+
 class FilecoinModel(mesa.Model):
     def __init__(self, n, start_date, end_date, 
                  agent_types=None, agent_kwargs_list=None, agent_power_distributions=None,
