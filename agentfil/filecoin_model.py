@@ -20,12 +20,40 @@ def solve_geometric(a, n):
     r = soln[0]
     return r
 
+def distribute_agent_power_geometric_series(num_agents, a=0.2):
+    # use a geometric-series to determine the proportion of power that goes
+    # to each agent
+    if num_agents == 1:
+        return [1.0]
+    
+    r = solve_geometric(a, num_agents)
+
+    agent_power_distributions = []
+    for i in range(num_agents):
+        agent_power_pct = a*(r**i)
+        agent_power_distributions.append(agent_power_pct)
+    return agent_power_distributions
+
+
+def apply_qa_multiplier(power_in, fil_plus_multipler=10, date_in=None, sdm=None, sdm_kwargs=None):
+    if sdm is None:
+        return power_in * fil_plus_multipler
+    else:
+        sdm_multiplier = sdm(power_in, **sdm_kwargs)
+        return power_in * sdm_multiplier * fil_plus_multipler
+
+
 class FilecoinModel(mesa.Model):
     def __init__(self, n, start_date, end_date, 
-                 agent_types=None, compute_cs_from_networkdatastart=True, use_historical_gas=False):
+                 agent_types=None, agent_kwargs_list=None, agent_power_distributions=None,
+                 compute_cs_from_networkdatastart=True, use_historical_gas=False):
         """
         agent_types: a vector of the types of agents to instantiate, if None then the 
                      default is to instantiate all agents as SPAgent
+        agent_kwargs_list: a list of dictionaries, each dictionary contains keywords to configure
+                            the instantiated agent.
+        agent_power_distributions: a vector of the proportion of power that goes to each agent. If None,
+                            will be computed using the default function `distribute_agent_power_geometric_series`
         compute_cs_from_networkdatastart: if True, then the circulating supply is computed from the
                                start of network data (2021-03-15). If False, then the circulating supply
                                is computed from the simulation start date and pre-seeded with
@@ -42,6 +70,9 @@ class FilecoinModel(mesa.Model):
         self.num_agents = n
         self.schedule = mesa.time.SimultaneousActivation(self)
 
+        if agent_power_distributions is None:
+            self.agent_power_distributions = distribute_agent_power_geometric_series(n)
+
         self.compute_cs_from_networkdatastart = compute_cs_from_networkdatastart
         self.use_historical_gas = use_historical_gas
 
@@ -57,12 +88,27 @@ class FilecoinModel(mesa.Model):
         self.rbp0 = None
         self.qap0 = None
 
+        self.validate(agent_kwargs_list)
+
         self.initialize_network_description_df()
         self.download_historical_data()
-        self.seed_agents(agent_types=agent_types)
+        self.seed_agents(agent_types=agent_types, agent_kwargs_list=agent_kwargs_list)
         self.fast_forward_to_simulation_start()
 
+    def validate(self, agent_kwargs_list):
+        if self.start_date < constants.NETWORK_DATA_START:
+            raise ValueError(f"start_date must be after {constants.NETWORK_DATA_START}")
+        if self.end_date < self.start_date:
+            raise ValueError("end_date must be after start_date")
+        assert len(self.agent_power_distributions) == self.num_agents
+        assert np.isclose(sum(self.agent_power_distributions), 1.0)
+
+        assert len(self.agent_power_distributions) == self.num_agents
+        if agent_kwargs_list is not None:
+            assert len(agent_kwargs_list) == self.num_agents
+
     def download_historical_data(self):
+        # TODO: have an offline method to speed this up ... otherwise takes 30s to initialize the model
         historical_stats = data.get_historical_network_stats(
             constants.NETWORK_DATA_START,
             self.start_date,
@@ -105,16 +151,9 @@ class FilecoinModel(mesa.Model):
 
         self.zero_cum_capped_power = data.get_cum_capped_rb_power(constants.NETWORK_DATA_START)
 
-    def seed_agents(self, agent_types=None):
-        self.download_historical_data()
-        
-        # use a geometric-series to determine the proportion of power that goes
-        # to each agent
-        a = 0.2
-        r = solve_geometric(a, self.num_agents)
-        
+    def seed_agents(self, agent_types=None, agent_kwargs_list=None):
         for ii in range(self.num_agents):
-            agent_power_pct = a*(r**ii)
+            agent_power_pct = self.agent_power_distributions[ii]
             agent_historical_df = self.df_historical.drop('date', axis=1) * agent_power_pct
             agent_historical_df['date'] = self.df_historical['date']
             agent_future_df = self.df_future.drop('date', axis=1) * agent_power_pct
@@ -127,8 +166,11 @@ class FilecoinModel(mesa.Model):
                 agent_cls = agent_types[ii]
             else:
                 agent_cls = sp_agent.SPAgent
-            # TODO: need to have different seed functions as a helper utility
-            agent = agent_cls(ii, agent_seed, self.start_date, self.end_date)
+            
+            agent_kwargs = {}
+            if agent_kwargs_list is not None:
+                agent_kwargs = agent_kwargs_list[ii]
+            agent = agent_cls(self, ii, agent_seed, self.start_date, self.end_date, **agent_kwargs)
 
             self.schedule.add(agent)
             self.agents.append(
@@ -162,6 +204,7 @@ class FilecoinModel(mesa.Model):
     def fast_forward_to_simulation_start(self):
         current_date = constants.NETWORK_DATA_START
         day_power_stats_vec = []
+        print('Fast forwarding power to simulation start date...', self.start_date)
         while current_date < self.start_date:
             day_power_stats = self.compute_macro(current_date)
             day_power_stats_vec.append(day_power_stats)
@@ -206,6 +249,7 @@ class FilecoinModel(mesa.Model):
 
         # add in future SE power
         se_power_stats_vec = []
+        print('Computing Scheduled Expirations from: ', self.current_date, ' to: ', self.max_date_se_power)
         while current_date < self.max_date_se_power:
             se_power_stats = self.compute_macro(current_date)
             se_power_stats_vec.append(se_power_stats)
@@ -243,8 +287,9 @@ class FilecoinModel(mesa.Model):
             self.filecoin_df.loc[start_idx, "network_locked_reward"] = locked_fil_zero / 2.0
             self.filecoin_df.loc[start_idx, "network_locked"] = locked_fil_zero
             self.filecoin_df.loc[start_idx, 'circ_supply'] = supply_df.iloc[start_idx]['circulating_fil']
-            for day_idx in range(start_idx+1, end_idx+1):
+            for day_idx in range(start_idx+1, end_idx):
                 self._update_circulating_supply(update_day=day_idx)
+                self._update_generated_quantities(update_day=day_idx)
         else:
             # NOTE: cum_network_reward was computed above from power inputs, use that rather than historical data
             # NOTE: vesting was computed above and is a static model, so use the precomputed vesting information
@@ -266,12 +311,20 @@ class FilecoinModel(mesa.Model):
             self.filecoin_df.loc[final_historical_data_idx+1, ["network_locked_reward"]] = locked_fil_zero / 2.0
             self.filecoin_df.loc[final_historical_data_idx+1, ["network_locked"]] = locked_fil_zero
 
+        ############################################################################################################
+        day_onboarded_power_QAP = self.filecoin_df.loc[day_idx, "day_onboarded_qap_pib"] * constants.PIB   # in bytes
+        network_QAP = self.filecoin_df["total_qa_power_eib"] * constants.EIB                  # in bytes
+
+        # NOTE: this only works if compute_cs_from_networkdatastart is set to True
+        self.filecoin_df['day_pledge_per_QAP'] = constants.SECTOR_SIZE * (self.filecoin_df['day_locked_pledge']-self.filecoin_df['day_renewed_pledge'])/day_onboarded_power_QAP
+        self.filecoin_df['day_rewards_per_sector'] = constants.SECTOR_SIZE * self.filecoin_df['day_network_reward'] / network_QAP
+        
+
     def compute_macro(self, date_in):
         # compute Macro econometrics (Power statistics)
         total_rb_delta, total_qa_delta = 0, 0
         total_onboarded_rb_delta, total_renewed_rb_delta, total_se_rb_delta, total_terminated_rb_delta = 0, 0, 0, 0
         total_onboarded_qa_delta, total_renewed_qa_delta, total_se_qa_delta, total_terminated_qa_delta = 0, 0, 0, 0
-        # print('Computing Macro for date:', date_in)
         for agent_info in self.agents:
             agent = agent_info['agent']
             agent_day_power_stats = agent.get_power_at_date(date_in)
@@ -310,7 +363,8 @@ class FilecoinModel(mesa.Model):
         day_idx = self.current_day if day_idx is None else day_idx
 
         self.filecoin_df.loc[day_idx, 'day_onboarded_rbp_pib'] = day_macro_info['day_onboarded_rbp_pib']
-        self.filecoin_df.loc[day_idx, 'day_onboarded_qap_pib'] = day_macro_info['day_onboarded_qap_pib']
+        ## @tmellan - min to prevent divide by 0 error - is this OK?
+        self.filecoin_df.loc[day_idx, 'day_onboarded_qap_pib'] = max(day_macro_info['day_onboarded_qap_pib'], constants.MIN_VALUE)
         self.filecoin_df.loc[day_idx, 'day_renewed_rbp_pib'] = day_macro_info['day_renewed_rbp_pib']
         self.filecoin_df.loc[day_idx, 'day_renewed_qap_pib'] = day_macro_info['day_renewed_qap_pib']
         self.filecoin_df.loc[day_idx, 'day_sched_expire_rbp_pib'] = day_macro_info['day_sched_expire_rbp_pib']
@@ -321,7 +375,9 @@ class FilecoinModel(mesa.Model):
         self.filecoin_df.loc[day_idx, 'day_network_qap_pib'] = day_macro_info['day_network_qap_pib']
 
         self.filecoin_df.loc[day_idx, 'total_raw_power_eib'] = self.filecoin_df.loc[day_idx, 'day_network_rbp_pib'] / 1024.0 + self.filecoin_df.loc[day_idx-1, 'total_raw_power_eib']
-        self.filecoin_df.loc[day_idx, 'total_qa_power_eib'] = self.filecoin_df.loc[day_idx, 'day_network_qap_pib'] / 1024.0 + self.filecoin_df.loc[day_idx-1, 'total_qa_power_eib']
+        ## @tmellan - min to prevent divide by 0 error - is this OK?
+        self.filecoin_df.loc[day_idx, 'total_qa_power_eib'] = max(self.filecoin_df.loc[day_idx, 'day_network_qap_pib'] / 1024.0 + self.filecoin_df.loc[day_idx-1, 'total_qa_power_eib'], constants.MIN_VALUE)
+
 
     def _update_minting(self, day_idx=None):
         day_idx = self.current_day if day_idx is None else day_idx
@@ -487,15 +543,6 @@ class FilecoinModel(mesa.Model):
         self.filecoin_df.loc[day_idx, 'day_pledge_per_QAP'] = constants.SECTOR_SIZE * (day_locked_pledge-day_renewed_pledge)/day_onboarded_power_QAP
         self.filecoin_df.loc[day_idx, 'day_rewards_per_sector'] = constants.SECTOR_SIZE * day_network_reward / network_QAP
         
-        # filecoin_df_subset = self.filecoin_df.iloc[day_idx:day_idx+self.sector_duration]
-        # # NOTE: this rolling sum is inefficient to compute every tick. Convert this to an interative formula        
-        # return_sector_1y = filecoin_df_subset['day_rewards_per_sector'].sum()
-        # roi_1y = return_sector_1y / self.filecoin_df.loc[day_idx, 'day_pledge_per_QAP']
-        # self.filecoin_df.loc[day_idx, '1y_return_per_sector'] = return_sector_1y
-        # self.filecoin_df.loc[day_idx, '1y_sector_roi'] = roi_1y
-        
-        # To put ROI into these calculations, we need to estimate future expected reward
-        # we can do that with some sort of prediction algorithm
         
     def step(self):
         # step agents

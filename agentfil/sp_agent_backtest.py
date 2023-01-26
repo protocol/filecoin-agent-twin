@@ -10,8 +10,8 @@ class SPAgent_Backtest(SPAgent):
     historical power information to ensure that the remainder of the simulation
     produces expected results for circulating supply, etc.
     """
-    def __init__(self, id, historical_power, start_date, end_date):
-        super().__init__(id, historical_power, start_date, end_date)
+    def __init__(self, model, id, historical_power, start_date, end_date):
+        super().__init__(model, id, historical_power, start_date, end_date)
 
     def seed_backtest(self, power_df):
         """
@@ -31,22 +31,22 @@ class SPAgent_Backtest(SPAgent):
         global_ii = (power_df.iloc[0]['date'] - constants.NETWORK_DATA_START).days
         ii_start = global_ii
         for _, row in power_df.iterrows():
-            self.onboarded_power[global_ii] = (
+            self.onboarded_power[global_ii] = [
                 cc_power(row['day_onboarded_rb_power_pib']),
                 deal_power(row['day_onboarded_qa_power_pib'])
-            )
-            self.renewed_power[global_ii] = (
+            ]
+            self.renewed_power[global_ii] = [
                 cc_power(row['extended_rb']),
                 deal_power(row['extended_qa'])
-            )
-            self.scheduled_expire_power[global_ii] = (
+            ]
+            self.scheduled_expire_power[global_ii] = [
                 cc_power(row['total_rb']),
                 deal_power(row['total_qa'])
-            )
-            self.terminated_power[global_ii] = (
+            ]
+            self.terminated_power[global_ii] = [
                 cc_power(row['terminated_rb']),
                 deal_power(row['terminated_qa'])
-            )
+            ]
             global_ii += 1
 
         # print("Backtest Seeding agent: %d from index=%d:%d" % (self.unique_id, ii_start, global_ii))
