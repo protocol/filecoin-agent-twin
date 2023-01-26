@@ -76,6 +76,9 @@ class FilecoinModel(mesa.Model):
         self.compute_cs_from_networkdatastart = compute_cs_from_networkdatastart
         self.use_historical_gas = use_historical_gas
 
+        if not compute_cs_from_networkdatastart:
+            raise ValueError("Value only True supported for now ...")
+
         self.start_date = start_date
         self.current_date = start_date
         self.end_date = end_date
@@ -128,8 +131,26 @@ class FilecoinModel(mesa.Model):
                 'day_onboarded_qa_power_pib', 'extended_qa', 'total_qa', 'terminated_qa',
             ]
         ]
+        # rename columns for internal consistency
+        self.df_historical = self.df_historical.rename(
+            columns={
+                'extended_rb': 'extended_rb_pib',
+                'extended_qa': 'extended_qa_pib',
+                'total_rb': 'sched_expire_rb_pib',
+                'total_qa': 'sched_expire_qa_pib',
+                'terminated_rb': 'terminated_rb_pib',
+                'terminated_qa': 'terminated_qa_pib',
+            }
+        )
+        scheduled_df = scheduled_df.rename(
+            columns={
+                'total_rb': 'sched_expire_rb_pib',
+                'total_qa': 'sched_expire_qa_pib',
+            }
+        )
+
         final_date_historical = historical_stats.iloc[-1]['date']
-        self.df_future = scheduled_df[scheduled_df['date'] >= final_date_historical][['date', 'total_rb', 'total_qa']]
+        self.df_future = scheduled_df[scheduled_df['date'] >= final_date_historical][['date', 'sched_expire_rb_pib', 'sched_expire_qa_pib']]
 
         self.rbp0 = merged_df.iloc[0]['total_raw_power_eib']
         self.qap0 = merged_df.iloc[0]['total_qa_power_eib']
@@ -173,10 +194,14 @@ class FilecoinModel(mesa.Model):
             agent = agent_cls(self, ii, agent_seed, self.start_date, self.end_date, **agent_kwargs)
 
             self.schedule.add(agent)
+            agent_reward_disbursment_df = pd.DataFrame()
+            agent_reward_disbursment_df['date'] = self.filecoin_df['date']
+            agent_reward_disbursment_df['reward_FIL'] = 0.0
             self.agents.append(
                 {
                     'agent_power_pct': agent_power_pct,
-                    'agent': agent
+                    'agent': agent,
+                    'reward_disbursement': agent_reward_disbursment_df
                 }
             )
 
@@ -290,6 +315,8 @@ class FilecoinModel(mesa.Model):
             for day_idx in range(start_idx+1, end_idx):
                 self._update_circulating_supply(update_day=day_idx)
                 self._update_generated_quantities(update_day=day_idx)
+                self._compute_agent_rewards(update_day=day_idx)
+                self._disburse_agent_rewards(update_day=day_idx)
         else:
             # NOTE: cum_network_reward was computed above from power inputs, use that rather than historical data
             # NOTE: vesting was computed above and is a static model, so use the precomputed vesting information
@@ -332,14 +359,14 @@ class FilecoinModel(mesa.Model):
             total_onboarded_rb_delta += agent_day_power_stats['day_onboarded_rb_power_pib']
             total_onboarded_qa_delta += agent_day_power_stats['day_onboarded_qa_power_pib']
             
-            total_renewed_rb_delta += agent_day_power_stats['extended_rb']
-            total_renewed_qa_delta += agent_day_power_stats['extended_qa']
+            total_renewed_rb_delta += agent_day_power_stats['extended_rb_pib']
+            total_renewed_qa_delta += agent_day_power_stats['extended_qa_pib']
 
-            total_se_rb_delta += agent_day_power_stats['total_rb']
-            total_se_qa_delta += agent_day_power_stats['total_qa']
+            total_se_rb_delta += agent_day_power_stats['sched_expire_rb_pib']
+            total_se_qa_delta += agent_day_power_stats['sched_expire_qa_pib']
 
-            total_terminated_rb_delta += agent_day_power_stats['terminated_rb']
-            total_terminated_qa_delta += agent_day_power_stats['terminated_qa']
+            total_terminated_rb_delta += agent_day_power_stats['terminated_rb_pib']
+            total_terminated_qa_delta += agent_day_power_stats['terminated_qa_pib']
 
         total_rb_delta += (total_onboarded_rb_delta + total_renewed_rb_delta - total_se_rb_delta - total_terminated_rb_delta)
         total_qa_delta += (total_onboarded_qa_delta + total_renewed_qa_delta - total_se_qa_delta - total_terminated_qa_delta)
@@ -408,7 +435,7 @@ class FilecoinModel(mesa.Model):
             agent_day_power_stats = agent.get_power_at_date(date_in)
         
             day_onboarded_qap = agent_day_power_stats['day_onboarded_qa_power_pib'] * constants.PIB
-            day_renewed_qap = agent_day_power_stats['extended_qa'] * constants.PIB
+            day_renewed_qap = agent_day_power_stats['extended_qa_pib'] * constants.PIB
             
             # compute total pledge this agent will locked
             onboards_locked = locking.compute_new_pledge_for_added_power(
@@ -543,7 +570,45 @@ class FilecoinModel(mesa.Model):
         self.filecoin_df.loc[day_idx, 'day_pledge_per_QAP'] = constants.SECTOR_SIZE * (day_locked_pledge-day_renewed_pledge)/day_onboarded_power_QAP
         self.filecoin_df.loc[day_idx, 'day_rewards_per_sector'] = constants.SECTOR_SIZE * day_network_reward / network_QAP
         
+
+    def _compute_agent_rewards(self, update_day=None):
+        day_idx = self.current_day if update_day is None else update_day
+        date_in = self.filecoin_df.iloc[day_idx]['date']
+
+        total_day_rewards = self.filecoin_df.iloc[day_idx]["day_network_reward"]
+        total_day_onboard_and_renew_pib = self.filecoin_df.iloc[day_idx]["day_onboarded_qap_pib"] +  self.filecoin_df.iloc[day_idx]["day_renewed_qap_pib"]
+
+        # TODO: add termination penalties here
+
+        for agent_info in self.agents:
+            agent = agent_info['agent']
+            agent_day_power_stats = agent.get_power_at_date(date_in)
         
+            day_onboarded_qap = agent_day_power_stats['day_onboarded_qa_power_pib']
+            day_renewed_qap = agent_day_power_stats['extended_qa_pib']
+            total_agent_qap_onboarded = day_onboarded_qap + day_renewed_qap
+            agent_reward_ratio = max(total_agent_qap_onboarded/total_day_onboard_and_renew_pib, 1.0) # account for numerical issues
+            agent_reward = total_day_rewards * agent_reward_ratio
+
+            agent_reward_df = agent_info['reward_disbursement']
+            reward_df_idx = agent_reward_df[agent_reward_df['date'] == date_in].index[0]
+
+            # 25 % vests immediately
+            agent_info['reward_disbursement'].loc[reward_df_idx, 'reward_FIL'] += agent_reward * 0.25
+            # remainder vests linearly over the next 180 days
+            agent_info['reward_disbursement'].loc[reward_df_idx+1:reward_df_idx+180, 'reward_FIL'] += (agent_reward * 0.75)/180
+
+    def _disburse_agent_rewards(self, update_day=None):
+        day_idx = self.current_day if update_day is None else update_day
+        date_in = self.filecoin_df.iloc[day_idx]['date']
+
+        for agent_info in self.agents:
+            agent = agent_info['agent']
+            agent_reward_df = agent_info['reward_disbursement']
+            agent_day_reward = agent_reward_df[agent_reward_df['date'] == date_in]['reward_FIL'].values[0]
+            agent.disburse_rewards(date_in, agent_day_reward)
+
+
     def step(self):
         # step agents
         self.schedule.step()
@@ -554,6 +619,8 @@ class FilecoinModel(mesa.Model):
         self._update_sched_expire_pledge(self.current_date)
         self._update_circulating_supply()
         self._update_generated_quantities()
+        self._compute_agent_rewards()
+        self._disburse_agent_rewards()
         # update any other inputs to agents
 
         # increment counters
