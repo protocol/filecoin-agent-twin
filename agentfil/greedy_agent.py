@@ -171,7 +171,7 @@ class GreedyAgent(SPAgent):
             prev_day_pledge_per_QAP = constants.MIN_VALUE
         pledge_per_pib = (prev_day_pledge_per_QAP / constants.SECTOR_SIZE) * constants.PIB
         pibs_to_onboard = available_FIL_after_fees / pledge_per_pib
-        # print(available_USD, available_FIL, available_FIL_after_fees, prev_day_pledge_per_QAP, pledge_per_pib, pibs_to_onboard)
+        
         return pibs_to_onboard
 
 
