@@ -1,6 +1,7 @@
 import mesa
 from datetime import datetime, timedelta
 from numpy.random import default_rng
+import pandas as pd
 
 from . import constants
 from .power import cc_power, deal_power
@@ -31,6 +32,10 @@ class SPAgent(mesa.Agent):
         self.scheduled_expire_pledge_renew = [0 for _ in range(self.sim_len_days)]
 
         self.t = [start_date + timedelta(days=i) for i in range(self.sim_len_days)]
+
+        self.rewards_from_network_df = pd.DataFrame()
+        self.rewards_from_network_df['date'] = self.model.filecoin_df['date']
+        self.rewards_from_network_df['reward'] = 0
 
         self.allocate_historical_power(agent_seed)
 
@@ -78,6 +83,10 @@ class SPAgent(mesa.Agent):
 
         self.current_day += 1
         self.current_date += timedelta(days=1)
+
+    def disburse_rewards(self, date_in, reward):
+        df_idx = self.rewards_from_network_df[self.rewards_from_network_df['date'] == date_in].index[0]
+        self.rewards_from_network_df.loc[df_idx, 'reward'] += reward
 
     def get_power_at_date(self, date_in):
         ii = (date_in - constants.NETWORK_DATA_START).days
