@@ -92,16 +92,16 @@ class SPAgent(mesa.Agent):
         ii = (date_in - constants.NETWORK_DATA_START).days
         assert ii >= 0, "date_in must be >= %s" % (constants.NETWORK_DATA_START,)
         out_dict = {
-            'day_onboarded_rb_power_pib': self.onboarded_power[ii][0].amount_bytes,
-            'day_onboarded_qa_power_pib': self.onboarded_power[ii][1].amount_bytes,
-            'extended_rb': self.renewed_power[ii][0].amount_bytes,
-            'extended_qa': self.renewed_power[ii][1].amount_bytes,
+            'day_onboarded_rb_power_pib': self.onboarded_power[ii][0].pib,
+            'day_onboarded_qa_power_pib': self.onboarded_power[ii][1].pib,
+            'extended_rb_pib': self.renewed_power[ii][0].pib,
+            'extended_qa_pib': self.renewed_power[ii][1].pib,
             'day_onboarded_qa_duration': self.onboarded_power[ii][1].duration,
             'extended_qa_duration': self.renewed_power[ii][1].duration,
-            'total_rb': self.scheduled_expire_power[ii][0].amount_bytes,
-            'total_qa': self.scheduled_expire_power[ii][1].amount_bytes,
-            'terminated_rb': self.terminated_power[ii][0].amount_bytes,
-            'terminated_qa': self.terminated_power[ii][1].amount_bytes,
+            'sched_expire_rb_pib': self.scheduled_expire_power[ii][0].pib,
+            'sched_expire_qa_pib': self.scheduled_expire_power[ii][1].pib,
+            'terminated_rb_pib': self.terminated_power[ii][0].pib,
+            'terminated_qa_pib': self.terminated_power[ii][1].pib,
             # 'scheduled_expire_pledge': self.scheduled_expire_pledge[ii],
         }
         return out_dict
@@ -122,16 +122,16 @@ class SPAgent(mesa.Agent):
                 deal_power(row['day_onboarded_qa_power_pib'])
             ]
             self.renewed_power[global_ii] = [
-                cc_power(row['extended_rb']),
-                deal_power(row['extended_qa'])
+                cc_power(row['extended_rb_pib']),
+                deal_power(row['extended_qa_pib'])
             ]
             self.scheduled_expire_power[global_ii] = [
-                cc_power(row['total_rb']),
-                deal_power(row['total_qa'])
+                cc_power(row['sched_expire_rb_pib']),
+                deal_power(row['sched_expire_qa_pib'])
             ]
             self.terminated_power[global_ii] = [
-                cc_power(row['terminated_rb']),
-                deal_power(row['terminated_qa'])
+                cc_power(row['terminated_rb_pib']),
+                deal_power(row['terminated_qa_pib'])
             ]
             # self.scheduled_expire_pledge[global_ii] = row['total_pledge']
             
@@ -142,8 +142,8 @@ class SPAgent(mesa.Agent):
         global_ii = (future_se_df.iloc[0]['date'] - constants.NETWORK_DATA_START).days
         for _, row in future_se_df.iterrows():
             self.scheduled_expire_power[global_ii] = [
-                cc_power(row['total_rb']),
-                deal_power(row['total_qa'])
+                cc_power(row['sched_expire_rb_pib']),
+                deal_power(row['sched_expire_qa_pib'])
             ]
             # self.scheduled_expire_pledge[global_ii] = row['total_pledge']
 

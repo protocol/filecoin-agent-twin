@@ -131,8 +131,26 @@ class FilecoinModel(mesa.Model):
                 'day_onboarded_qa_power_pib', 'extended_qa', 'total_qa', 'terminated_qa',
             ]
         ]
+        # rename columns for internal consistency
+        self.df_historical = self.df_historical.rename(
+            columns={
+                'extended_rb': 'extended_rb_pib',
+                'extended_qa': 'extended_qa_pib',
+                'total_rb': 'sched_expire_rb_pib',
+                'total_qa': 'sched_expire_qa_pib',
+                'terminated_rb': 'terminated_rb_pib',
+                'terminated_qa': 'terminated_qa_pib',
+            }
+        )
+        scheduled_df = scheduled_df.rename(
+            columns={
+                'total_rb': 'sched_expire_rb_pib',
+                'total_qa': 'sched_expire_qa_pib',
+            }
+        )
+
         final_date_historical = historical_stats.iloc[-1]['date']
-        self.df_future = scheduled_df[scheduled_df['date'] >= final_date_historical][['date', 'total_rb', 'total_qa']]
+        self.df_future = scheduled_df[scheduled_df['date'] >= final_date_historical][['date', 'sched_expire_rb_pib', 'sched_expire_qa_pib']]
 
         self.rbp0 = merged_df.iloc[0]['total_raw_power_eib']
         self.qap0 = merged_df.iloc[0]['total_qa_power_eib']
@@ -341,14 +359,14 @@ class FilecoinModel(mesa.Model):
             total_onboarded_rb_delta += agent_day_power_stats['day_onboarded_rb_power_pib']
             total_onboarded_qa_delta += agent_day_power_stats['day_onboarded_qa_power_pib']
             
-            total_renewed_rb_delta += agent_day_power_stats['extended_rb']
-            total_renewed_qa_delta += agent_day_power_stats['extended_qa']
+            total_renewed_rb_delta += agent_day_power_stats['extended_rb_pib']
+            total_renewed_qa_delta += agent_day_power_stats['extended_qa_pib']
 
-            total_se_rb_delta += agent_day_power_stats['total_rb']
-            total_se_qa_delta += agent_day_power_stats['total_qa']
+            total_se_rb_delta += agent_day_power_stats['sched_expire_rb_pib']
+            total_se_qa_delta += agent_day_power_stats['sched_expire_qa_pib']
 
-            total_terminated_rb_delta += agent_day_power_stats['terminated_rb']
-            total_terminated_qa_delta += agent_day_power_stats['terminated_qa']
+            total_terminated_rb_delta += agent_day_power_stats['terminated_rb_pib']
+            total_terminated_qa_delta += agent_day_power_stats['terminated_qa_pib']
 
         total_rb_delta += (total_onboarded_rb_delta + total_renewed_rb_delta - total_se_rb_delta - total_terminated_rb_delta)
         total_qa_delta += (total_onboarded_qa_delta + total_renewed_qa_delta - total_se_qa_delta - total_terminated_qa_delta)
@@ -417,7 +435,7 @@ class FilecoinModel(mesa.Model):
             agent_day_power_stats = agent.get_power_at_date(date_in)
         
             day_onboarded_qap = agent_day_power_stats['day_onboarded_qa_power_pib'] * constants.PIB
-            day_renewed_qap = agent_day_power_stats['extended_qa'] * constants.PIB
+            day_renewed_qap = agent_day_power_stats['extended_qa_pib'] * constants.PIB
             
             # compute total pledge this agent will locked
             onboards_locked = locking.compute_new_pledge_for_added_power(
@@ -565,10 +583,11 @@ class FilecoinModel(mesa.Model):
             agent_day_power_stats = agent.get_power_at_date(date_in)
         
             day_onboarded_qap = agent_day_power_stats['day_onboarded_qa_power_pib'] * constants.PIB
-            day_renewed_qap = agent_day_power_stats['extended_qa'] * constants.PIB
+            day_renewed_qap = agent_day_power_stats['extended_qa_pib'] * constants.PIB
             total_agent_qap_onboarded = day_onboarded_qap + day_renewed_qap
             agent_reward_ratio = total_agent_qap_onboarded/network_QAP
             agent_reward = total_day_rewards * agent_reward_ratio
+            # print(day_idx, date_in, agent_reward_ratio)
 
             agent_reward_df = agent_info['reward_disbursement']
             reward_df_idx = agent_reward_df[agent_reward_df['date'] == date_in].index[0]

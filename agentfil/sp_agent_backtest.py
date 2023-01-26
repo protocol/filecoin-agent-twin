@@ -36,16 +36,16 @@ class SPAgent_Backtest(SPAgent):
                 deal_power(row['day_onboarded_qa_power_pib'])
             ]
             self.renewed_power[global_ii] = [
-                cc_power(row['extended_rb']),
-                deal_power(row['extended_qa'])
+                cc_power(row['extended_rb_pib']),
+                deal_power(row['extended_qa_pib'])
             ]
             self.scheduled_expire_power[global_ii] = [
-                cc_power(row['total_rb']),
-                deal_power(row['total_qa'])
+                cc_power(row['sched_expire_rb_pib']),
+                deal_power(row['sched_expire_qa_pib'])
             ]
             self.terminated_power[global_ii] = [
-                cc_power(row['terminated_rb']),
-                deal_power(row['terminated_qa'])
+                cc_power(row['terminated_rb_pib']),
+                deal_power(row['terminated_qa_pib'])
             ]
             global_ii += 1
 
