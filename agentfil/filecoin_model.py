@@ -576,18 +576,17 @@ class FilecoinModel(mesa.Model):
         date_in = self.filecoin_df.iloc[day_idx]['date']
 
         total_day_rewards = self.filecoin_df.iloc[day_idx]["day_network_reward"]
-        network_QAP = self.filecoin_df.iloc[day_idx]["total_qa_power_eib"] * constants.EIB                  # in bytes
+        total_day_onboard_and_renew_pib = self.filecoin_df.iloc[day_idx]["day_onboarded_qap_pib"] +  self.filecoin_df.iloc[day_idx]["day_renewed_qap_pib"]
 
         for agent_info in self.agents:
             agent = agent_info['agent']
             agent_day_power_stats = agent.get_power_at_date(date_in)
         
-            day_onboarded_qap = agent_day_power_stats['day_onboarded_qa_power_pib'] * constants.PIB
-            day_renewed_qap = agent_day_power_stats['extended_qa_pib'] * constants.PIB
+            day_onboarded_qap = agent_day_power_stats['day_onboarded_qa_power_pib']
+            day_renewed_qap = agent_day_power_stats['extended_qa_pib']
             total_agent_qap_onboarded = day_onboarded_qap + day_renewed_qap
-            agent_reward_ratio = total_agent_qap_onboarded/network_QAP
+            agent_reward_ratio = max(total_agent_qap_onboarded/total_day_onboard_and_renew_pib, 1.0) # account for numerical issues
             agent_reward = total_day_rewards * agent_reward_ratio
-            # print(day_idx, date_in, agent_reward_ratio)
 
             agent_reward_df = agent_info['reward_disbursement']
             reward_df_idx = agent_reward_df[agent_reward_df['date'] == date_in].index[0]
