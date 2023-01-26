@@ -24,21 +24,19 @@ class GreedyAgent(SPAgent):
 
     The Greedy agent operations with the following behavior:
 
-    duration_vec = [6, 12, 36, 60]
-    For each tick (day) denoted by t, the agent will:
+    duration_vec_days = [6, 12, 36, 60] tick (day) denoted by t, the agent will:
         profitability_vec = []
-        for d in duration_vec:
+        for d in duration_vec_days:
             - Estimate ROI
                 - Includes fees
-                - Includes USD lending rates
+                - Includes rates
             - Estimate fees for onboarding power
             - Estimate future USD/FIL exchange rate at time t+d
             - profit_metric = (1+ROI)*exchange_rate[t+d] - exchange_rate[t]
             - profitability_vec.append(profit_metric)
         - max_profit_idx = argmax(profitability_vec)
-        - best duration = duration_vec[max_profit_idx]
-        if profitability_vec[max_profit_idx] > 0:
-            - Onboard power for duration = best duration
+        - best duration = duration_vec_days[max_profit_idx]
+        if profitability_vec[max_profit_idx] > 0: power for duration = best duration
             - Add power to scheduled_expire_power
             - Add power to renewed_power
         else:
@@ -58,7 +56,7 @@ class GreedyAgent(SPAgent):
     def __init__(self, model, id, historical_power, start_date, end_date, accounting_df=None):
         super().__init__(model, id, historical_power, start_date, end_date)
         
-        self.duration_vec = [6, 12, 36, 60]
+        self.duration_vec_days = np.asarray([6, 12, 36])*30
 
         self.FIL_USD_EXCHANGE_EFFICIENCY = 0.7
         self.ROI_EFFICIENCY_FACTOR = 0.7  # a simple model to account for gas fees and opex
@@ -133,7 +131,7 @@ class GreedyAgent(SPAgent):
         # TODO: run prediction on market-cap & volume, but this information is not currently 
         # used by this agent, so I left it out currently
         x = self.usd_fil_exchange_df['price'].values
-        forecast_length = remaining_len
+        forecast_length = remaining_len + np.max(self.duration_vec_days)
         num_mc = 100
         seed_base = 1111
         future_prices_vec = []
@@ -146,31 +144,45 @@ class GreedyAgent(SPAgent):
         future_price_df = pd.DataFrame(
             {
                 "coin" : 'filecoin',
-                "date" : pd.date_range(self.start_date, self.end_date, freq='D'),
+                "date" : pd.date_range(self.start_date, periods=forecast_length, freq='D'),
                 "price" : future_median_price,
-                "market_caps" : np.random.normal(last_price, 0.5, remaining_len),
-                "total_volumes" : np.random.normal(last_price, 0.5, remaining_len)
+                "market_caps" : np.random.normal(last_price, 0.5, forecast_length),
+                "total_volumes" : np.random.normal(last_price, 0.5, forecast_length)
             }
         )
         future_price_df['date'] = pd.to_datetime(future_price_df['date']).dt.date
         self.usd_fil_exchange_df = pd.concat([self.usd_fil_exchange_df, future_price_df], ignore_index=True)
-                                             
+
+
+    def get_available_FIL(self, date_in):
+        accounting_df_idx = self.accounting_df[pd.to_datetime(self.accounting_df['date']) == pd.to_datetime(date_in)].index[0]
+        accounting_df_subset = self.accounting_df.loc[0:accounting_df_idx, :]
+        available_FIL = accounting_df_subset['reward_FIL'].cumsum() \
+                        - accounting_df_subset['onboard_pledge_FIL'].cumsum() \
+                        - accounting_df_subset['renew_pledge_FIL'].cumsum() \
+                        + accounting_df_subset['onboard_scheduled_pledge_release_FIL'].cumsum() \
+                        + accounting_df_subset['renew_scheduled_pledge_release_FIL'].cumsum()
+        return available_FIL.values[-1]
 
     def get_max_onboarding_power_pib(self, date_in):
-        agent_info_df_idx = self.agent_info_df[pd.to_datetime(self.agent_info_df['date']) == pd.to_datetime(date_in)].index[0]
-        available_USD = self.agent_info_df.loc[agent_info_df_idx, 'USD'] - self.agent_info_df.loc[0:agent_info_df_idx, 'funds_used'].sum()
+        # agent_info_df_idx = self.agent_info_df[pd.to_datetime(self.agent_info_df['date']) == pd.to_datetime(date_in)].index[0]
+        # available_USD = self.agent_info_df.loc[agent_info_df_idx, 'USD'] - self.agent_info_df.loc[0:agent_info_df_idx, 'funds_used'].sum()
         
-        current_exchange_rate = self.usd_fil_exchange_df.loc[pd.to_datetime(self.usd_fil_exchange_df['date']) == pd.to_datetime(date_in), 'price'].values[0]
-        available_FIL = available_USD / current_exchange_rate
-        available_FIL_after_fees = available_FIL * self.FIL_USD_EXCHANGE_EFFICIENCY
+        # current_exchange_rate = self.usd_fil_exchange_df.loc[pd.to_datetime(self.usd_fil_exchange_df['date']) == pd.to_datetime(date_in), 'price'].values[0]
+        # available_FIL = available_USD / current_exchange_rate
+        # available_FIL_after_fees = available_FIL * self.FIL_USD_EXCHANGE_EFFICIENCY
 
-        filecoin_df_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(date_in)].index[0]
-        # NOTE: we need to use previous day b/c the full day's metrics haven't been aggregated yet
-        prev_day_pledge_per_QAP = self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_pledge_per_QAP']
-        if prev_day_pledge_per_QAP < constants.MIN_VALUE:
-            prev_day_pledge_per_QAP = constants.MIN_VALUE
-        pledge_per_pib = (prev_day_pledge_per_QAP / constants.SECTOR_SIZE) * constants.PIB
-        pibs_to_onboard = available_FIL_after_fees / pledge_per_pib
+        available_FIL = self.get_available_FIL(date_in)
+
+        # filecoin_df_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(date_in)].index[0]
+        # # NOTE: we need to use previous day b/c the full day's metrics haven't been aggregated yet
+        # prev_day_pledge_per_QAP = self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_pledge_per_QAP']
+        # if prev_day_pledge_per_QAP < constants.MIN_VALUE:
+        #     prev_day_pledge_per_QAP = constants.MIN_VALUE
+        # pledge_per_pib = (prev_day_pledge_per_QAP / constants.SECTOR_SIZE) * constants.PIB
+        # pibs_to_onboard = available_FIL_after_fees / pledge_per_pib
+        pledge_per_pib = self.model.estimate_pledge_for_power(date_in, 1.0)
+        pibs_to_onboard = available_FIL / pledge_per_pib
         
         return pibs_to_onboard
 
@@ -181,23 +193,22 @@ class GreedyAgent(SPAgent):
         # TODO: take into account duration in all calculations. currently we use random noise to simulate this
         filecoin_df_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(self.current_date)].index[0]
         prev_day_pledge_per_QAP = self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_pledge_per_QAP']
-        for d in self.duration_vec:
-            # Estimate Instantaneous ROI and use that as future ROI
+        for d in self.duration_vec_days:
+            # Estimate Instantaneous ROI and use that as
             # NOTE: we need to use yesterday's metrics b/c today's haven't yet been aggregated by the system yet
             roi_estimate = self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_rewards_per_sector'] / prev_day_pledge_per_QAP
             
+            # TODO: if ROI is positive and we have enough FIL reserve, then greedy agent should just onboard
+            # the power, maybe at a certain ROI threhsold.
+            # TODO: think about what to do if we don't have enough FIL reserve. that's where the borrowing aspect comes in.
+
             # add in a factor to account for interest rates, fees, etc.
             roi_estimate = roi_estimate * self.ROI_EFFICIENCY_FACTOR
             
             current_exchange_rate = self.usd_fil_exchange_df.loc[self.usd_fil_exchange_df['date'] == self.current_date, 'price'].values[0]
             # Estimate future USD/FIL exchange rate at time t+d
-            future_date = self.current_date + timedelta(days=d)
-            future_exchange_rate = self.usd_fil_exchange_df.loc[self.usd_fil_exchange_df['date'] == future_date, 'price'].values
-            if len(future_exchange_rate) == 0:
-                # if we don't have an exchange rate for the future, use the last value
-                future_exchange_rate = self.usd_fil_exchange_df.iloc[-1]['price']
-            else:
-                future_exchange_rate = future_exchange_rate[0]
+            future_date = self.current_date + timedelta(days=int(d))
+            future_exchange_rate = self.usd_fil_exchange_df.loc[self.usd_fil_exchange_df['date'] == future_date, 'price'].values[0]
         
             profit_metric = (1+roi_estimate)*future_exchange_rate - current_exchange_rate
             
@@ -208,16 +219,13 @@ class GreedyAgent(SPAgent):
         self.agent_info_df.loc[agent_df_idx, 'roi_estimate_6mo'] = roi_estimate_vec[0]
         self.agent_info_df.loc[agent_df_idx, 'roi_estimate_1y'] = roi_estimate_vec[1]
         self.agent_info_df.loc[agent_df_idx, 'roi_estimate_3y'] = roi_estimate_vec[2]
-        self.agent_info_df.loc[agent_df_idx, 'roi_estimate_5y'] = roi_estimate_vec[3]
         self.agent_info_df.loc[agent_df_idx, 'profit_duration_6mo'] = profitability_vec[0]
         self.agent_info_df.loc[agent_df_idx, 'profit_duration_1y'] = profitability_vec[1]
         self.agent_info_df.loc[agent_df_idx, 'profit_duration_3y'] = profitability_vec[2]
-        self.agent_info_df.loc[agent_df_idx, 'profit_duration_5y'] = profitability_vec[3]
 
         max_profit_idx = np.argmax(profitability_vec)
-        best_duration = self.duration_vec[max_profit_idx]
-        if profitability_vec[max_profit_idx] > 0:
-            # check how much power we can onboard, this is based the amount of money we have
+        best_duration = self.duration_vec_days[max_profit_idx]
+        if profitability_vec[max_profit_idx] > 0: 
             # TODO: need to update this b/c deal power is 10x more pledge but 10x more reward later.
             max_possible_power = self.get_max_onboarding_power_pib(self.current_date)
 

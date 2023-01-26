@@ -32,13 +32,13 @@ class SPAgent(mesa.Agent):
         # NOTE: duration is not relevant for SE power. It is only relevant for onboarded or renewed power
         self.scheduled_expire_power = [[cc_power(0), deal_power(0)] for _ in range(self.sim_len_days)]
 
-        self.updates_from_network_df = pd.DataFrame()
-        self.updates_from_network_df['date'] = self.model.filecoin_df['date']
-        self.updates_from_network_df['reward_FIL'] = 0
-        self.updates_from_network_df['onboard_pledge_FIL'] = 0
-        self.updates_from_network_df['renew_pledge_FIL'] = 0
-        self.updates_from_network_df['onboard_scheduled_pledge_release_FIL'] = 0
-        self.updates_from_network_df['renew_scheduled_pledge_release_FIL'] = 0
+        self.accounting_df = pd.DataFrame()
+        self.accounting_df['date'] = self.model.filecoin_df['date']
+        self.accounting_df['reward_FIL'] = 0
+        self.accounting_df['onboard_pledge_FIL'] = 0
+        self.accounting_df['renew_pledge_FIL'] = 0
+        self.accounting_df['onboard_scheduled_pledge_release_FIL'] = 0
+        self.accounting_df['renew_scheduled_pledge_release_FIL'] = 0
 
         self.allocate_historical_power(agent_seed)
 
@@ -88,8 +88,8 @@ class SPAgent(mesa.Agent):
         self.current_date += timedelta(days=1)
 
     def disburse_rewards(self, date_in, reward):
-        df_idx = self.updates_from_network_df[self.updates_from_network_df['date'] == date_in].index[0]
-        self.updates_from_network_df.loc[df_idx, 'reward_FIL'] += reward
+        df_idx = self.accounting_df[self.accounting_df['date'] == date_in].index[0]
+        self.accounting_df.loc[df_idx, 'reward_FIL'] += reward
 
     def get_power_at_date(self, date_in):
         ii = (date_in - constants.NETWORK_DATA_START).days
