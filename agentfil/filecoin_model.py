@@ -223,11 +223,7 @@ class FilecoinModel(mesa.Model):
         end_idx = self.filecoin_df[self.filecoin_df['date'] == scheduled_df.iloc[-1]['date']].index[0]
         self.filecoin_df['scheduled_pledge_release'] = 0
         self.filecoin_df.loc[start_idx:end_idx, 'scheduled_pledge_release'] = known_scheduled_pledge_release_vec
-        # self.known_scheduled_pledge_release_full_vec = np.zeros(len_since_network_start)
-        # l = len(known_scheduled_pledge_release_vec)
-        # self.known_scheduled_pledge_release_full_vec[0:l] = known_scheduled_pledge_release_vec
         
-        self.sector_duration = 365
         self.lock_target = 0.3
 
         self.zero_cum_capped_power = data.get_cum_capped_rb_power(constants.NETWORK_DATA_START)
@@ -369,6 +365,8 @@ class FilecoinModel(mesa.Model):
             self.filecoin_df.loc[start_idx, "network_locked"] = locked_fil_zero
             self.filecoin_df.loc[start_idx, 'circ_supply'] = supply_df.iloc[start_idx]['circulating_fil']
             for day_idx in range(start_idx+1, end_idx):
+                date_in = self.filecoin_df.loc[day_idx, 'date']
+                self._update_sched_expire_pledge(date_in)
                 self._update_circulating_supply(update_day=day_idx)
                 self._update_generated_quantities(update_day=day_idx)
                 self._compute_agent_rewards(update_day=day_idx)
@@ -519,14 +517,14 @@ class FilecoinModel(mesa.Model):
             renewed_qa_duration = agent_day_power_stats['extended_qa_duration']
             
             # only update the vector if it is within the simulation range
+            agent.updates_from_network_df.loc[day_idx, "onboard_pledge_FIL"] += onboards_locked
             if day_idx + onboarded_qa_duration < len(self.filecoin_df):
                 self.filecoin_df.loc[day_idx + onboarded_qa_duration, "scheduled_pledge_release"] += onboards_locked
-                agent.updates_from_network_df.loc[day_idx, "onboard_pledge_FIL"] += onboards_locked
                 agent.updates_from_network_df.loc[day_idx + onboarded_qa_duration, "onboard_scheduled_pledge_release_FIL"] += onboards_locked
 
+            agent.updates_from_network_df.loc[day_idx, "renew_pledge_FIL"] += renews_locked
             if day_idx + renewed_qa_duration < len(self.filecoin_df):
                 self.filecoin_df.loc[day_idx + renewed_qa_duration, "scheduled_pledge_release"] += renews_locked
-                agent.updates_from_network_df.loc[day_idx, "renew_pledge_FIL"] += renews_locked
                 agent.updates_from_network_df.loc[day_idx + renewed_qa_duration, "renew_scheduled_pledge_release_FIL"] += renews_locked
             
     def _update_circulating_supply(self, update_day=None):
