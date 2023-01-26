@@ -196,7 +196,7 @@ class FilecoinModel(mesa.Model):
             self.schedule.add(agent)
             agent_reward_disbursment_df = pd.DataFrame()
             agent_reward_disbursment_df['date'] = self.filecoin_df['date']
-            agent_reward_disbursment_df['reward'] = 0.0
+            agent_reward_disbursment_df['reward_FIL'] = 0.0
             self.agents.append(
                 {
                     'agent_power_pct': agent_power_pct,
@@ -578,6 +578,8 @@ class FilecoinModel(mesa.Model):
         total_day_rewards = self.filecoin_df.iloc[day_idx]["day_network_reward"]
         total_day_onboard_and_renew_pib = self.filecoin_df.iloc[day_idx]["day_onboarded_qap_pib"] +  self.filecoin_df.iloc[day_idx]["day_renewed_qap_pib"]
 
+        # TODO: add termination penalties here
+
         for agent_info in self.agents:
             agent = agent_info['agent']
             agent_day_power_stats = agent.get_power_at_date(date_in)
@@ -592,9 +594,9 @@ class FilecoinModel(mesa.Model):
             reward_df_idx = agent_reward_df[agent_reward_df['date'] == date_in].index[0]
 
             # 25 % vests immediately
-            agent_info['reward_disbursement'].loc[reward_df_idx, 'reward'] += agent_reward * 0.25
+            agent_info['reward_disbursement'].loc[reward_df_idx, 'reward_FIL'] += agent_reward * 0.25
             # remainder vests linearly over the next 180 days
-            agent_info['reward_disbursement'].loc[reward_df_idx+1:reward_df_idx+180, 'reward'] += (agent_reward * 0.75)/180
+            agent_info['reward_disbursement'].loc[reward_df_idx+1:reward_df_idx+180, 'reward_FIL'] += (agent_reward * 0.75)/180
 
     def _disburse_agent_rewards(self, update_day=None):
         day_idx = self.current_day if update_day is None else update_day
@@ -603,7 +605,7 @@ class FilecoinModel(mesa.Model):
         for agent_info in self.agents:
             agent = agent_info['agent']
             agent_reward_df = agent_info['reward_disbursement']
-            agent_day_reward = agent_reward_df[agent_reward_df['date'] == date_in]['reward'].values[0]
+            agent_day_reward = agent_reward_df[agent_reward_df['date'] == date_in]['reward_FIL'].values[0]
             agent.disburse_rewards(date_in, agent_day_reward)
 
 

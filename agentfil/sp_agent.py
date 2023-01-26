@@ -35,7 +35,7 @@ class SPAgent(mesa.Agent):
 
         self.rewards_from_network_df = pd.DataFrame()
         self.rewards_from_network_df['date'] = self.model.filecoin_df['date']
-        self.rewards_from_network_df['reward'] = 0
+        self.rewards_from_network_df['reward_FIL'] = 0
 
         self.allocate_historical_power(agent_seed)
 
@@ -86,7 +86,7 @@ class SPAgent(mesa.Agent):
 
     def disburse_rewards(self, date_in, reward):
         df_idx = self.rewards_from_network_df[self.rewards_from_network_df['date'] == date_in].index[0]
-        self.rewards_from_network_df.loc[df_idx, 'reward'] += reward
+        self.rewards_from_network_df.loc[df_idx, 'reward_FIL'] += reward
 
     def get_power_at_date(self, date_in):
         ii = (date_in - constants.NETWORK_DATA_START).days
