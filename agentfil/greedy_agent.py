@@ -53,17 +53,35 @@ class GreedyAgent(SPAgent):
 
     """
 
-    def __init__(self, model, id, historical_power, start_date, end_date, accounting_df=None):
+    def __init__(self, model, id, historical_power, start_date, end_date, 
+                 accounting_df=None, random_seed=1111, fil_usd_price_optimism=3):
+        """
+        Args:
+            model: the model object
+            id: the agent id
+            historical_power: the historical power of the agent
+            start_date: the start date of the simulation
+            end_date: the end date of the simulation
+            accounting_df: a dataframe with two columns, date and USD. 
+                           Currently, the USD field is not used, but will be modified in the future to model interest rates, etc.    
+            random_seed: the random seed for the agent
+            fil_usd_price_optimism_scale: integer between 1 and 5 representing the optimism of the agent, 
+                                          1 being most pessimistic and 5 being most optimistic
+        """
         super().__init__(model, id, historical_power, start_date, end_date)
         
+        self.random_seed = random_seed
         self.duration_vec_days = np.asarray([6, 12, 36])*30
+        self.fil_usd_price_optimism = fil_usd_price_optimism
 
-        self.FIL_USD_EXCHANGE_EFFICIENCY = 0.7
         self.ROI_EFFICIENCY_FACTOR = 0.7  # a simple model to account for gas fees and opex
 
         self.validate(accounting_df)
         self.get_exchange_rate()
         self.predict_future_exchange_rate()
+
+        price_optimism_to_quantilestr = {1: 'Q5', 2: 'Q25', 3: 'Q50', 4: 'Q75', 5: 'Q95'}
+        self.price_quantile_str = price_optimism_to_quantilestr[self.fil_usd_price_optimism]
 
         # good for debugging agent actions.  
         # consider paring it down when not debugging for simulation speed
@@ -71,11 +89,9 @@ class GreedyAgent(SPAgent):
         self.agent_info_df['roi_estimate_6mo'] = 0
         self.agent_info_df['roi_estimate_1y'] = 0
         self.agent_info_df['roi_estimate_3y'] = 0
-        self.agent_info_df['roi_estimate_5y'] = 0
         self.agent_info_df['profit_duration_6mo'] = 0
         self.agent_info_df['profit_duration_1y'] = 0
         self.agent_info_df['profit_duration_3y'] = 0
-        self.agent_info_df['profit_duration_5y'] = 0
         self.agent_info_df['cc_onboarded'] = 0
         self.agent_info_df['cc_renewed'] = 0
         self.agent_info_df['cc_onboarded_duration'] = 0
@@ -102,6 +118,10 @@ class GreedyAgent(SPAgent):
             raise ValueError("The usd_df must have a date column.")
         if 'USD' not in accounting_df.columns:
             raise ValueError("The usd_df must have a USD column.")
+
+        assert self.fil_usd_price_optimism >= 1 and self.fil_usd_price_optimism <= 5, \
+                "fil_usd_price_optimism_scale must be between 1 and 5"
+        assert type(self.fil_usd_price_optimism) == int, "fil_usd_price_optimism_scale must be an integer"
 
     def get_exchange_rate(self, id_='filecoin'):
         cg = CoinGeckoAPI()
@@ -132,20 +152,24 @@ class GreedyAgent(SPAgent):
         # used by this agent, so I left it out currently
         x = self.usd_fil_exchange_df['price'].values
         forecast_length = remaining_len + np.max(self.duration_vec_days)
-        num_mc = 100
-        seed_base = 1111
+        num_mc = 200
+        seed_base = self.random_seed
         future_prices_vec = []
         for ii in range(num_mc):
             seed_in = seed_base + ii
             y = gbm_forecast(x, forecast_length, seed=seed_in)
             future_prices_vec.append(y)
-        future_median_price = np.median(np.asarray(future_prices_vec), axis=0)
-
+        price_quantiles = np.quantile(np.asarray(future_prices_vec), [0.1, 0.25, 0.5, 0.75, 0.9], axis=0)
+        
         future_price_df = pd.DataFrame(
             {
                 "coin" : 'filecoin',
                 "date" : pd.date_range(self.start_date, periods=forecast_length, freq='D'),
-                "price" : future_median_price,
+                "price_Q5" : price_quantiles[0],
+                "price_Q25" : price_quantiles[1],
+                "price_Q50" : price_quantiles[2],
+                "price_Q75" : price_quantiles[3],
+                "price_Q90" : price_quantiles[4],
                 "market_caps" : np.random.normal(last_price, 0.5, forecast_length),
                 "total_volumes" : np.random.normal(last_price, 0.5, forecast_length)
             }
@@ -165,50 +189,44 @@ class GreedyAgent(SPAgent):
         return available_FIL.values[-1]
 
     def get_max_onboarding_power_pib(self, date_in):
-        # agent_info_df_idx = self.agent_info_df[pd.to_datetime(self.agent_info_df['date']) == pd.to_datetime(date_in)].index[0]
-        # available_USD = self.agent_info_df.loc[agent_info_df_idx, 'USD'] - self.agent_info_df.loc[0:agent_info_df_idx, 'funds_used'].sum()
-        
-        # current_exchange_rate = self.usd_fil_exchange_df.loc[pd.to_datetime(self.usd_fil_exchange_df['date']) == pd.to_datetime(date_in), 'price'].values[0]
-        # available_FIL = available_USD / current_exchange_rate
-        # available_FIL_after_fees = available_FIL * self.FIL_USD_EXCHANGE_EFFICIENCY
-
         available_FIL = self.get_available_FIL(date_in)
-
-        # filecoin_df_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(date_in)].index[0]
-        # # NOTE: we need to use previous day b/c the full day's metrics haven't been aggregated yet
-        # prev_day_pledge_per_QAP = self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_pledge_per_QAP']
-        # if prev_day_pledge_per_QAP < constants.MIN_VALUE:
-        #     prev_day_pledge_per_QAP = constants.MIN_VALUE
-        # pledge_per_pib = (prev_day_pledge_per_QAP / constants.SECTOR_SIZE) * constants.PIB
-        # pibs_to_onboard = available_FIL_after_fees / pledge_per_pib
         pledge_per_pib = self.model.estimate_pledge_for_power(date_in, 1.0)
         pibs_to_onboard = available_FIL / pledge_per_pib
         
         return pibs_to_onboard
 
+    def estimate_roi(self, sector_duration, date_in):
+        filecoin_df_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(date_in)].index[0]
+
+        # NOTE: we need to use yesterday's metrics b/c today's haven't yet been aggregated by the system yet
+        prev_day_pledge_per_QAP = self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_pledge_per_QAP']
+
+        # linearly extrapolate the last data over sector duration, which can obviously be improved
+        roi_estimate = (self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_rewards_per_sector']*sector_duration) / prev_day_pledge_per_QAP
+        
+        # add in a factor to account for interest rates, fees, etc.
+        roi_estimate = roi_estimate * self.ROI_EFFICIENCY_FACTOR
+        
+        # annualize it so that we can have the same frame of reference when comparing different sector durations
+        duration_yr = sector_duration / 360.0  
+        roi_estimate_annualized = (1.0+roi_estimate)**(1.0/duration_yr) - 1
+        
+        return roi_estimate_annualized
+
 
     def step(self):
         roi_estimate_vec = []
         profitability_vec = []
-        # TODO: take into account duration in all calculations. currently we use random noise to simulate this
+
         filecoin_df_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(self.current_date)].index[0]
         prev_day_pledge_per_QAP = self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_pledge_per_QAP']
-        for d in self.duration_vec_days:
-            # Estimate Instantaneous ROI and use that as
-            # NOTE: we need to use yesterday's metrics b/c today's haven't yet been aggregated by the system yet
-            roi_estimate = self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_rewards_per_sector'] / prev_day_pledge_per_QAP
+        current_exchange_rate = self.usd_fil_exchange_df.loc[self.usd_fil_exchange_df['date'] == self.current_date, 'price_%s' % (self.price_quantile_str,)].values[0]
+        for d in self.duration_vec_days:    
+            roi_estimate = self.estimate_roi(d, self.current_date)
             
-            # TODO: if ROI is positive and we have enough FIL reserve, then greedy agent should just onboard
-            # the power, maybe at a certain ROI threhsold.
-            # TODO: think about what to do if we don't have enough FIL reserve. that's where the borrowing aspect comes in.
-
-            # add in a factor to account for interest rates, fees, etc.
-            roi_estimate = roi_estimate * self.ROI_EFFICIENCY_FACTOR
-            
-            current_exchange_rate = self.usd_fil_exchange_df.loc[self.usd_fil_exchange_df['date'] == self.current_date, 'price'].values[0]
             # Estimate future USD/FIL exchange rate at time t+d
             future_date = self.current_date + timedelta(days=int(d))
-            future_exchange_rate = self.usd_fil_exchange_df.loc[self.usd_fil_exchange_df['date'] == future_date, 'price'].values[0]
+            future_exchange_rate = self.usd_fil_exchange_df.loc[self.usd_fil_exchange_df['date'] == future_date, 'price_%s' % (self.price_quantile_str,)].values[0]
         
             profit_metric = (1+roi_estimate)*future_exchange_rate - current_exchange_rate
             
@@ -226,12 +244,10 @@ class GreedyAgent(SPAgent):
         max_profit_idx = np.argmax(profitability_vec)
         best_duration = self.duration_vec_days[max_profit_idx]
         if profitability_vec[max_profit_idx] > 0: 
-            # TODO: need to update this b/c deal power is 10x more pledge but 10x more reward later.
             max_possible_power = self.get_max_onboarding_power_pib(self.current_date)
 
             # of the maximum available to onboard, choose a certain amount
-            # TODO: create a random seed here ... 
-            rb_to_onboard = min(max_possible_power * np.random.beta(2, 2), constants.MAX_DAY_ONBOARD_RBP_PIB)
+            rb_to_onboard = min(max_possible_power, constants.MAX_DAY_ONBOARD_RBP_PIB)
 
             # put all that into deal power
             qa_to_onboard = apply_qa_multiplier(rb_to_onboard)

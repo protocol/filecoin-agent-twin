@@ -142,7 +142,7 @@ class FilecoinModel(mesa.Model):
         filecoin_df_idx = self.filecoin_df[self.filecoin_df['date'] == date_in].index[0]
         prev_day_idx = filecoin_df_idx - 1
         
-        prev_circ_supply = self.filecoin_df.loc[prev_day_idx, 'circulating_supply']
+        prev_circ_supply = self.filecoin_df.loc[prev_day_idx, 'circ_supply']
         prev_total_qa_power_pib = self.filecoin_df.loc[prev_day_idx, 'total_qa_power_eib'] * 1024.0
         prev_baseline_power_pib = self.filecoin_df.loc[prev_day_idx, 'network_baseline'] / constants.PIB
         prev_day_network_reward = self.filecoin_df.loc[prev_day_idx, 'day_network_reward']
