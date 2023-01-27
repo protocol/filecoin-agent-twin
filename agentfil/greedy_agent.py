@@ -206,8 +206,11 @@ class GreedyAgent(SPAgent):
 
     def get_max_onboarding_qap_pib(self, date_in):
         available_FIL = self.get_available_FIL(date_in)
-        pledge_per_pib = self.model.estimate_pledge_for_qa_power(date_in, 1.0)
-        pibs_to_onboard = available_FIL / pledge_per_pib
+        if available_FIL > 0:
+            pledge_per_pib = self.model.estimate_pledge_for_qa_power(date_in, 1.0)
+            pibs_to_onboard = available_FIL / pledge_per_pib
+        else:
+            pibs_to_onboard = 0
         
         return pibs_to_onboard
 
@@ -285,7 +288,7 @@ class GreedyAgent(SPAgent):
             # if CC, then QA = RB, if FIL+, then RB = QA / filplus_multiplier
 
             # for now, we put all power into FIL+ (deal power)
-            rb_to_onboard = min(max_possible_qa_power/constants.FIL_PLUS_MULTIPLER, constants.MAX_DAY_ONBOARD_RBP_PIB)
+            rb_to_onboard = min(max_possible_qa_power/constants.FIL_PLUS_MULTIPLER, self.model.MAX_DAY_ONBOARD_RBP_PIB_PER_AGENT)
             qa_to_onboard = apply_qa_multiplier(rb_to_onboard)
 
             self.onboarded_power[self.current_day][0] += cc_power(rb_to_onboard, best_duration)

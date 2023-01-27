@@ -70,10 +70,13 @@ class FilecoinModel(mesa.Model):
                             is only relevant when compute_cs_from_start=True.
         """
         self.num_agents = n
+        self.MAX_DAY_ONBOARD_RBP_PIB_PER_AGENT = constants.MAX_DAY_ONBOARD_RBP_PIB / n
         self.schedule = mesa.time.SimultaneousActivation(self)
 
         if agent_power_distributions is None:
             self.agent_power_distributions = distribute_agent_power_geometric_series(n)
+        else:
+            self.agent_power_distributions = agent_power_distributions
 
         self.compute_cs_from_networkdatastart = compute_cs_from_networkdatastart
         self.use_historical_gas = use_historical_gas
@@ -653,7 +656,8 @@ class FilecoinModel(mesa.Model):
             day_onboarded_qap = agent_day_power_stats['day_onboarded_qa_power_pib']
             day_renewed_qap = agent_day_power_stats['extended_qa_pib']
             total_agent_qap_onboarded = day_onboarded_qap + day_renewed_qap
-            agent_reward_ratio = max(total_agent_qap_onboarded/total_day_onboard_and_renew_pib, 1.0) # account for numerical issues
+            agent_reward_ratio = min(total_agent_qap_onboarded/total_day_onboard_and_renew_pib, 1.0) # account for numerical issues
+            # print(agent.unique_id, date_in, day_onboarded_qap, day_renewed_qap, total_day_onboard_and_renew_pib)
             agent_reward = total_day_rewards * agent_reward_ratio
 
             # agent_network_df = agent_info['network_updates_df']
