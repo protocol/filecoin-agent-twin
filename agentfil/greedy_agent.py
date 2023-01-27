@@ -217,18 +217,7 @@ class GreedyAgent(SPAgent):
     def forecast_day_rewards_per_sector(self, forecast_start_date, forecast_length):
         df_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(forecast_start_date)].index[0]
 
-        # # GBM method
-        # x = self.model.filecoin_df.loc[0:df_idx-1, 'day_rewards_per_sector'].values
-        # num_mc = self.forecast_num_mc
-        # seed_base = self.random_seed
-        # day_rewards_per_sector_forecast_vec = []
-        # for ii in range(num_mc):
-        #     seed_in = seed_base + ii
-        #     y = gbm_forecast(x, forecast_length, seed=seed_in)
-        #     day_rewards_per_sector_forecast_vec.append(y)
-        # q = self.optimism_to_dayrewardspersector_quantile[self.agent_optimism]
-        # future_rewards_per_sector = np.quantile(np.asarray(day_rewards_per_sector_forecast_vec), q, axis=0)
-        # return future_rewards_per_sector
+        # better method is to forecast the RBP and use that to compute minting rate.
 
         # lazy method
         future_rewards_per_sector = np.ones(forecast_length) * self.model.filecoin_df.loc[df_idx-1, 'day_rewards_per_sector']
