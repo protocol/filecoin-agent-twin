@@ -6,8 +6,8 @@ with open("README.md", "r") as fh:
 setuptools.setup(
     name="agentFIL",
     version="0.1",
-    author="Kiran Karra, Tom Mellan",
-    author_email="kiran.karra@gmail.com, t.mellan@imperial.ac.uk",
+    author="Kiran Karra, Tom Mellan, Juan",
+    author_email="kiran.karra@gmail.com, t.mellan@imperial.ac.uk, juan.madrigalcianci@gmail.com",
     description="Agent based model for Filecoin Economy",
     long_description=long_description,
     long_description_content_type="text/markdown",
