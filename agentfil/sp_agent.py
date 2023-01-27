@@ -56,6 +56,9 @@ class SPAgent(mesa.Agent):
         """
         self._bookkeep()
 
+    def post_global_step(self):
+        pass
+
     def _bookkeep(self):
         # book-keeping stuff that is common for any type of agent
         # automatically update the SE power based on what was onboarded & renewed

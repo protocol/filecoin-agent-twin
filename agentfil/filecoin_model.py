@@ -35,7 +35,9 @@ def distribute_agent_power_geometric_series(num_agents, a=0.2):
     return agent_power_distributions
 
 
-def apply_qa_multiplier(power_in, fil_plus_multipler=10, date_in=None, sdm=None, sdm_kwargs=None):
+def apply_qa_multiplier(power_in, 
+                        fil_plus_multipler=constants.FIL_PLUS_MULTIPLER, 
+                        date_in=None, sdm=None, sdm_kwargs=None):
     if sdm is None:
         return power_in * fil_plus_multipler
     else:
@@ -108,14 +110,14 @@ class FilecoinModel(mesa.Model):
         self._update_sched_expire_pledge(self.current_date)
         self._update_circulating_supply()
         self._update_generated_quantities()
-        self._compute_agent_rewards()
+        self._update_agents()
         # update any other inputs to agents
 
         # increment counters
         self.current_date += timedelta(days=1)
         self.current_day += 1
 
-    def estimate_pledge_for_power(self, date_in, qa_power_pib):
+    def estimate_pledge_for_qa_power(self, date_in, qa_power_pib):
         """
         Computes the required pledge for a given date and desired QA power to onboard.
         The general use-case for this function will be that for a given day, the agent
@@ -369,7 +371,7 @@ class FilecoinModel(mesa.Model):
                 self._update_sched_expire_pledge(date_in, update_filecoin_df=False)
                 self._update_circulating_supply(update_day=day_idx)
                 self._update_generated_quantities(update_day=day_idx)
-                self._compute_agent_rewards(update_day=day_idx)
+                self._update_agents(update_day=day_idx)
         else:
             # NOTE: cum_network_reward was computed above from power inputs, use that rather than historical data
             # NOTE: vesting was computed above and is a static model, so use the precomputed vesting information
@@ -635,7 +637,7 @@ class FilecoinModel(mesa.Model):
         self.filecoin_df.loc[day_idx, 'day_pledge_per_QAP'] = constants.SECTOR_SIZE * (day_locked_pledge-day_renewed_pledge)/day_onboarded_power_QAP
         self.filecoin_df.loc[day_idx, 'day_rewards_per_sector'] = constants.SECTOR_SIZE * day_network_reward / network_QAP
         
-    def _compute_agent_rewards(self, update_day=None):
+    def _update_agents(self, update_day=None):
         day_idx = self.current_day if update_day is None else update_day
         date_in = self.filecoin_df.iloc[day_idx]['date']
 
@@ -662,3 +664,5 @@ class FilecoinModel(mesa.Model):
             agent_accounting_df.loc[accounting_df_idx, 'reward_FIL'] += agent_reward * 0.25
             # remainder vests linearly over the next 180 days
             agent_accounting_df.loc[accounting_df_idx+1:accounting_df_idx+180, 'reward_FIL'] += (agent_reward * 0.75)/180
+
+            agent.post_global_step()
