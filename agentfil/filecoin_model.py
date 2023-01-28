@@ -2,9 +2,13 @@ import mesa
 import pandas as pd
 import numpy as np
 from scipy.optimize import fsolve
-from datetime import timedelta
+from datetime import timedelta, datetime
+import time
+
+from pycoingecko import CoinGeckoAPI
 
 from mechafil import data, vesting, minting, supply, locking
+from scenario_generator.gbm_forecast import gbm_forecast
 
 from . import constants
 from . import sp_agent
@@ -48,7 +52,8 @@ def apply_qa_multiplier(power_in,
 class FilecoinModel(mesa.Model):
     def __init__(self, n, start_date, end_date, 
                  agent_types=None, agent_kwargs_list=None, agent_power_distributions=None,
-                 compute_cs_from_networkdatastart=True, use_historical_gas=False):
+                 compute_cs_from_networkdatastart=True, use_historical_gas=False,
+                 forecast_num_mc=1000, random_seed=1234):
         """
         agent_types: a vector of the types of agents to instantiate, if None then the 
                      default is to instantiate all agents as SPAgent
@@ -68,9 +73,13 @@ class FilecoinModel(mesa.Model):
                             are computed as a constant average value. In backtesting, it was observed
                             that use_historical_gas=False leads to better backtesting results. This option
                             is only relevant when compute_cs_from_start=True.
+        forecast_num_mc: the number of monte carlo simulations to run when forecasting things using probabilistic methods.
+                         be mindful of setting this number too large as this will slow down the simulation.
         """
         self.num_agents = n
         self.MAX_DAY_ONBOARD_RBP_PIB_PER_AGENT = constants.MAX_DAY_ONBOARD_RBP_PIB / n
+        self.forecast_num_mc = forecast_num_mc
+        self.random_seed = random_seed
         self.schedule = mesa.time.SimultaneousActivation(self)
 
         if agent_power_distributions is None:
@@ -98,6 +107,8 @@ class FilecoinModel(mesa.Model):
 
         self._validate(agent_kwargs_list)
 
+        self.setup_usd_to_fil_exchange_rate()
+
         self._initialize_network_description_df()
         self._download_historical_data()
         self._seed_agents(agent_types=agent_types, agent_kwargs_list=agent_kwargs_list)
@@ -119,6 +130,65 @@ class FilecoinModel(mesa.Model):
         # increment counters
         self.current_date += timedelta(days=1)
         self.current_day += 1
+
+    def setup_usd_to_fil_exchange_rate(self):
+        cg = CoinGeckoAPI()
+        id_ = 'filecoin'
+        change_t = lambda x : datetime.utcfromtimestamp(x/1000).strftime('%Y-%m-%d')
+        ts = cg.get_coin_market_chart_range_by_id(id=id_,
+                                                  vs_currency='usd',
+                                                  from_timestamp=time.mktime(constants.NETWORK_DATA_START.timetuple()),
+                                                  to_timestamp=time.mktime((self.start_date-timedelta(days=1)).timetuple()))
+
+        self.usd_fil_exchange_df = pd.DataFrame(
+            {
+                "coin" : id_,
+                "date" : list(map(change_t, np.array(ts['prices']).T[0])),
+                "price" : np.array(ts['prices']).T[1],
+                "market_caps" : np.array(ts['market_caps']).T[1], 
+                "total_volumes" : np.array(ts['total_volumes']).T[1]
+            }
+        )
+        self.usd_fil_exchange_df['date'] = pd.to_datetime(self.usd_fil_exchange_df['date']).dt.date
+
+        # create forecasts
+        # update the prediction to something better
+        last_price = self.usd_fil_exchange_df.iloc[-1]['price']
+        remaining_len = (self.end_date - self.start_date).days + 1
+
+        # use Geometric Brownian Motion to predict future prices, market caps, and total volumes
+        # TODO: run prediction on market-cap & volume, but this information is not currently 
+        # used by this agent, so I left it out currently
+        x = self.usd_fil_exchange_df['price'].values
+        forecast_length = remaining_len + np.max(constants.MAX_SECTOR_DURATION_DAYS)
+        num_mc = self.forecast_num_mc
+        seed_base = self.random_seed
+        future_prices_vec = []
+        for ii in range(num_mc):
+            seed_in = seed_base + ii
+            y = gbm_forecast(x, forecast_length, seed=seed_in)
+            future_prices_vec.append(y)
+
+        quantiles = [0.05, 0.25, 0.5, 0.75, 0.95]
+        future_price_quantiles = np.quantile(np.asarray(future_prices_vec), quantiles, axis=0)
+        
+        future_price_df = pd.DataFrame(
+            {
+                "coin" : 'filecoin',
+                "date" : pd.date_range(self.start_date, periods=forecast_length, freq='D'),
+                "price_Q05" : future_price_quantiles[0],
+                "price_Q25" : future_price_quantiles[1],
+                "price_Q50" : future_price_quantiles[2],
+                "price_Q75" : future_price_quantiles[3],
+                "price_Q95" : future_price_quantiles[4],
+                # currently market-cap and total-volume are not used, in the future this could change
+                # for sophisticated agents
+                "market_caps" : np.random.normal(last_price, 0.5, forecast_length),
+                "total_volumes" : np.random.normal(last_price, 0.5, forecast_length)
+            }
+        )
+        future_price_df['date'] = pd.to_datetime(future_price_df['date']).dt.date
+        self.usd_fil_exchange_df = pd.concat([self.usd_fil_exchange_df, future_price_df], ignore_index=True)
 
     def estimate_pledge_for_qa_power(self, date_in, qa_power_pib):
         """
