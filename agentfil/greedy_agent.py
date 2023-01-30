@@ -1,18 +1,12 @@
-from datetime import timedelta, datetime
-import time
-import datetime as dt
+from datetime import timedelta
 from . import constants
 from .sp_agent import SPAgent
 from .power import cc_power, deal_power
 from .filecoin_model import apply_qa_multiplier
 
-from scenario_generator.gbm_forecast import gbm_forecast
-
 import copy
 import numpy as np
 import pandas as pd
-
-from pycoingecko import CoinGeckoAPI
 
 class GreedyAgent(SPAgent):
     """
@@ -29,7 +23,7 @@ class GreedyAgent(SPAgent):
 
     Agent Logic/Behavior
     --------------------
-    duration_vec_days = [6, 12, 36, 60]*30
+    duration_vec_days = [6, 12, 36]*30
     profitability_vec = []
     for d in duration_vec_days:
         - Estimate ROI
@@ -82,8 +76,6 @@ class GreedyAgent(SPAgent):
 
         self.validate(accounting_df)
         self.map_optimism_scales()
-        self.get_exchange_rate()
-        self.forecast_future_exchange_rate()
 
         # good for debugging agent actions.  
         # consider paring it down when not debugging for simulation speed
@@ -105,19 +97,19 @@ class GreedyAgent(SPAgent):
         self.agent_info_df['USD_used'] = 0
 
     def map_optimism_scales(self):
-        self.optimism_to_price_quantile = {
-            1 : 0.1,
-            2 : 0.25,
-            3 : 0.5,
-            4 : 0.75,
-            5 : 0.90
+        self.optimism_to_price_quantile_str = {
+            1 : "Q05",
+            2 : "Q25",
+            3 : "Q50",
+            4 : "Q75",
+            5 : "Q95"
         }
-        self.optimism_to_dayrewardspersector_quantile = {
-            1 : 0.1,
-            2 : 0.25,
-            3 : 0.5,
-            4 : 0.75,
-            5 : 0.90
+        self.optimism_to_dayrewardspersector_quantile_str = {
+            1 : "Q05",
+            2 : "Q25",
+            3 : "Q50",
+            4 : "Q75",
+            5 : "Q95"
         }
         
 
@@ -140,59 +132,6 @@ class GreedyAgent(SPAgent):
         assert self.agent_optimism >= 1 and self.agent_optimism <= 5, \
                 "fil_usd_price_optimism_scale must be between 1 and 5"
         assert type(self.agent_optimism) == int, "fil_usd_price_optimism_scale must be an integer"
-
-    def get_exchange_rate(self, id_='filecoin'):
-        cg = CoinGeckoAPI()
-        change_t = lambda x : datetime.utcfromtimestamp(x/1000).strftime('%Y-%m-%d')
-        ts = cg.get_coin_market_chart_range_by_id(id=id_,
-                                                  vs_currency='usd',
-                                                  from_timestamp=time.mktime(constants.NETWORK_DATA_START.timetuple()),
-                                                  to_timestamp=time.mktime((self.start_date-timedelta(days=1)).timetuple()))
-
-        self.usd_fil_exchange_df = pd.DataFrame(
-            {
-                "coin" : id_,
-                "date" : list(map(change_t, np.array(ts['prices']).T[0])),
-                "price" : np.array(ts['prices']).T[1],
-                "market_caps" : np.array(ts['market_caps']).T[1], 
-                "total_volumes" : np.array(ts['total_volumes']).T[1]
-            }
-        )
-        self.usd_fil_exchange_df['date'] = pd.to_datetime(self.usd_fil_exchange_df['date']).dt.date
-
-    def forecast_future_exchange_rate(self):
-        # update the prediction to something better
-        last_price = self.usd_fil_exchange_df.iloc[-1]['price']
-        remaining_len = (self.end_date - self.start_date).days + 1
-
-        # use Geometric Brownian Motion to predict future prices, market caps, and total volumes
-        # TODO: run prediction on market-cap & volume, but this information is not currently 
-        # used by this agent, so I left it out currently
-        x = self.usd_fil_exchange_df['price'].values
-        forecast_length = remaining_len + np.max(self.duration_vec_days)
-        num_mc = self.forecast_num_mc
-        seed_base = self.random_seed
-        future_prices_vec = []
-        for ii in range(num_mc):
-            seed_in = seed_base + ii
-            y = gbm_forecast(x, forecast_length, seed=seed_in)
-            future_prices_vec.append(y)
-
-        q = self.optimism_to_price_quantile[self.agent_optimism]
-        future_price = np.quantile(np.asarray(future_prices_vec), q, axis=0)
-        
-        future_price_df = pd.DataFrame(
-            {
-                "coin" : 'filecoin',
-                "date" : pd.date_range(self.start_date, periods=forecast_length, freq='D'),
-                "price" : future_price,
-                "market_caps" : np.random.normal(last_price, 0.5, forecast_length),
-                "total_volumes" : np.random.normal(last_price, 0.5, forecast_length)
-            }
-        )
-        future_price_df['date'] = pd.to_datetime(future_price_df['date']).dt.date
-        self.usd_fil_exchange_df = pd.concat([self.usd_fil_exchange_df, future_price_df], ignore_index=True)
-
 
     def get_available_FIL(self, date_in):
         accounting_df_idx = self.accounting_df[pd.to_datetime(self.accounting_df['date']) == pd.to_datetime(date_in)].index[0]
@@ -239,20 +178,27 @@ class GreedyAgent(SPAgent):
         
         return roi_estimate_annualized
 
+    def get_exchange_rate(self, date_in):
+        key = 'price_' + self.optimism_to_price_quantile_str[self.agent_optimism]
+        v = self.model.global_forecast_df.loc[self.model.global_forecast_df['date'] == date_in, key].values
+        if len(v) > 0:
+            return v[0]
+        else:
+            # return last known prediction.  Agent can do better than this if they choose to
+            return self.model.global_forecast_df.iloc[-1][key]
+
 
     def step(self):
         roi_estimate_vec = []
         profitability_vec = []
 
-        filecoin_df_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(self.current_date)].index[0]
-        prev_day_pledge_per_QAP = self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_pledge_per_QAP']
-        current_exchange_rate = self.usd_fil_exchange_df.loc[self.usd_fil_exchange_df['date'] == self.current_date, 'price'].values[0]
+        current_exchange_rate = self.get_exchange_rate(self.current_date)
         for d in self.duration_vec_days:    
             roi_estimate = self.estimate_roi(d, self.current_date)
             
             # Estimate future USD/FIL exchange rate at time t+d
             future_date = self.current_date + timedelta(days=int(d))
-            future_exchange_rate = self.usd_fil_exchange_df.loc[self.usd_fil_exchange_df['date'] == future_date, 'price'].values[0]
+            future_exchange_rate = self.get_exchange_rate(future_date)
         
             profit_metric = (1+roi_estimate)*future_exchange_rate - current_exchange_rate
             
