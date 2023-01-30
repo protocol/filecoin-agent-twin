@@ -12,6 +12,7 @@ from scenario_generator.gbm_forecast import gbm_forecast
 
 from . import constants
 from . import sp_agent
+from . import minting_rate_process
 
 
 def solve_geometric(a, n):
@@ -53,8 +54,10 @@ class FilecoinModel(mesa.Model):
     def __init__(self, n, start_date, end_date, 
                  agent_types=None, agent_kwargs_list=None, agent_power_distributions=None,
                  compute_cs_from_networkdatastart=True, use_historical_gas=False,
-                 forecast_num_mc=1000, random_seed=1234):
+                 forecast_num_mc=1000, minting_process_kwargs=None, random_seed=1234):
         """
+        start_date: the start date of the simulation
+        end_date: the end date of the simulation
         agent_types: a vector of the types of agents to instantiate, if None then the 
                      default is to instantiate all agents as SPAgent
         agent_kwargs_list: a list of dictionaries, each dictionary contains keywords to configure
@@ -79,6 +82,11 @@ class FilecoinModel(mesa.Model):
         self.num_agents = n
         self.MAX_DAY_ONBOARD_RBP_PIB_PER_AGENT = constants.MAX_DAY_ONBOARD_RBP_PIB / n
         self.forecast_num_mc = forecast_num_mc
+        # self.forecast_every_ndays = forecast_every_ndays
+        self.minting_process_kwargs = minting_process_kwargs
+        if self.minting_process_kwargs is None:
+            self.minting_process_kwargs = {}
+
         self.random_seed = random_seed
         self.schedule = mesa.time.SimultaneousActivation(self)
 
@@ -107,14 +115,16 @@ class FilecoinModel(mesa.Model):
 
         self._validate(agent_kwargs_list)
 
-        self.setup_usd_to_fil_exchange_rate()
-
         self._initialize_network_description_df()
         self._download_historical_data()
+        self._setup_global_forecasts()
         self._seed_agents(agent_types=agent_types, agent_kwargs_list=agent_kwargs_list)
         self._fast_forward_to_simulation_start()
 
     def step(self):
+        # update global forecasts
+        self._update_global_forecasts()
+
         # step agents
         self.schedule.step()
 
@@ -131,7 +141,18 @@ class FilecoinModel(mesa.Model):
         self.current_date += timedelta(days=1)
         self.current_day += 1
 
-    def setup_usd_to_fil_exchange_rate(self):
+    def _setup_global_forecasts(self):
+        self.global_forecast_df = pd.DataFrame()
+        self.global_forecast_df['date'] = self.filecoin_df['date']
+
+        self._setup_price_process()
+
+        self.minting_process = minting_rate_process.MintingRateProcess(self, **self.minting_process_kwargs)
+
+    def _update_global_forecasts(self):
+        self.minting_process.step()
+
+    def _setup_price_process(self):
         cg = CoinGeckoAPI()
         id_ = 'filecoin'
         change_t = lambda x : datetime.utcfromtimestamp(x/1000).strftime('%Y-%m-%d')
@@ -528,8 +549,8 @@ class FilecoinModel(mesa.Model):
         self.filecoin_df.loc[day_idx, 'day_network_rbp_pib'] = day_macro_info['day_network_rbp_pib']
         self.filecoin_df.loc[day_idx, 'day_network_qap_pib'] = day_macro_info['day_network_qap_pib']
 
-        self.filecoin_df.loc[day_idx, 'total_raw_power_eib'] = self.filecoin_df.loc[day_idx, 'day_network_rbp_pib'] / 1024.0 + self.filecoin_df.loc[day_idx-1, 'total_raw_power_eib']
         ## @tmellan - min to prevent divide by 0 error - is this OK?
+        self.filecoin_df.loc[day_idx, 'total_raw_power_eib'] = max(self.filecoin_df.loc[day_idx, 'day_network_rbp_pib'] / 1024.0 + self.filecoin_df.loc[day_idx-1, 'total_raw_power_eib'], constants.MIN_VALUE)
         self.filecoin_df.loc[day_idx, 'total_qa_power_eib'] = max(self.filecoin_df.loc[day_idx, 'day_network_qap_pib'] / 1024.0 + self.filecoin_df.loc[day_idx-1, 'total_qa_power_eib'], constants.MIN_VALUE)
 
     def _update_minting(self, day_idx=None):
