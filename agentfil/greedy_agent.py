@@ -180,7 +180,12 @@ class GreedyAgent(SPAgent):
 
     def get_exchange_rate(self, date_in):
         key = 'price_' + self.optimism_to_price_quantile_str[self.agent_optimism]
-        return self.model.usd_fil_exchange_df.loc[self.model.usd_fil_exchange_df['date'] == date_in, key].values[0]
+        v = self.model.global_forecast_df.loc[self.model.global_forecast_df['date'] == date_in, key].values
+        if len(v) > 0:
+            return v[0]
+        else:
+            # return last known prediction.  Agent can do better than this if they choose to
+            return self.model.global_forecast_df.iloc[-1][key]
 
 
     def step(self):
