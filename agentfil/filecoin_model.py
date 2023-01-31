@@ -8,7 +8,7 @@ from mechafil import data, vesting, minting, supply, locking
 
 from . import constants
 from . import sp_agent
-from . import minting_rate_process
+from . import rewards_per_sector_process
 from . import price_process
 
 
@@ -144,8 +144,15 @@ class FilecoinModel(mesa.Model):
         self.global_forecast_df = pd.DataFrame()
         self.global_forecast_df['date'] = self.filecoin_df['date']
 
+        # need to forecast this many days after the simulation end date because
+        # agents will be making decisions uptil the end of simulation with future forecasts
+        final_date = self.filecoin_df['date'].iloc[-1]
+        remaining_len = constants.MAX_SECTOR_DURATION_DAYS
+        future_dates = [final_date + timedelta(days=i) for i in range(1, remaining_len + 1)]
+        self.global_forecast_df = pd.concat([self.global_forecast_df, pd.DataFrame({'date': future_dates})], ignore_index=True)
+        
         self.price_process = price_process.PriceProcess(self, **self.price_process_kwargs)
-        self.minting_process = minting_rate_process.MintingRateProcess(self, **self.minting_process_kwargs)
+        self.minting_process = rewards_per_sector_process.RewardsPerSectorProcess(self, **self.minting_process_kwargs)
 
     def _update_global_forecasts(self):
         self.price_process.step()

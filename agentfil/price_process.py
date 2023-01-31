@@ -78,18 +78,26 @@ class PriceProcess:
         )
         self.usd_fil_exchange_df['date'] = pd.to_datetime(self.usd_fil_exchange_df['date']).dt.date
 
+        # simulate quantiles since we're going to create them for the future forecasts, this is simply
+        # done to make the data frame easier to use, but strictly isn't necessary
+        self.usd_fil_exchange_df['price_Q05'] = self.usd_fil_exchange_df['price']
+        self.usd_fil_exchange_df['price_Q25'] = self.usd_fil_exchange_df['price']
+        self.usd_fil_exchange_df['price_Q50'] = self.usd_fil_exchange_df['price']
+        self.usd_fil_exchange_df['price_Q75'] = self.usd_fil_exchange_df['price']
+        self.usd_fil_exchange_df['price_Q95'] = self.usd_fil_exchange_df['price']
+
     def _create_forecasts(self):
         # create forecasts
         # update the prediction to something better
         last_price = self.usd_fil_exchange_df.iloc[-1]['price']
-        remaining_len = (self.end_date - self.start_date).days + 1
+        remaining_len = (self.end_date - self.start_date).days
 
         # use Geometric Brownian Motion to predict future prices, market caps, and total volumes
         # TODO: run prediction on market-cap & volume, but this information is not currently 
         # used by this agent, so I left it out currently
         x = self.usd_fil_exchange_df['price'].values
-        # forecast_length = remaining_len + np.max(constants.MAX_SECTOR_DURATION_DAYS)
-        forecast_length = remaining_len
+        forecast_length = remaining_len + np.max(constants.MAX_SECTOR_DURATION_DAYS)
+        # forecast_length = remaining_len
         num_mc = self.forecast_num_mc
         seed_base = self.random_seed
         future_prices_vec = []
@@ -120,11 +128,13 @@ class PriceProcess:
         self.usd_fil_exchange_df = pd.concat([self.usd_fil_exchange_df, self.future_price_df], ignore_index=True)
 
     def _update_model_global_forecasts(self):
-        self.model.global_forecast_df['price_Q05'] = self.usd_fil_exchange_df['price_Q05'].values
-        self.model.global_forecast_df['price_Q25'] = self.usd_fil_exchange_df['price_Q25'].values
-        self.model.global_forecast_df['price_Q50'] = self.usd_fil_exchange_df['price_Q50'].values
-        self.model.global_forecast_df['price_Q75'] = self.usd_fil_exchange_df['price_Q75'].values
-        self.model.global_forecast_df['price_Q95'] = self.usd_fil_exchange_df['price_Q95'].values
+        global_forecast_df_start_idx = self.model.global_forecast_df[self.model.global_forecast_df['date'] == self.usd_fil_exchange_df.iloc[0]['date']].index[0]
+        global_forecast_df_end_idx = self.model.global_forecast_df[self.model.global_forecast_df['date'] == self.usd_fil_exchange_df.iloc[-1]['date']].index[0]
+        self.model.global_forecast_df.loc[global_forecast_df_start_idx:global_forecast_df_end_idx, 'price_Q05'] = self.usd_fil_exchange_df['price_Q05'].values
+        self.model.global_forecast_df.loc[global_forecast_df_start_idx:global_forecast_df_end_idx, 'price_Q25'] = self.usd_fil_exchange_df['price_Q25'].values
+        self.model.global_forecast_df.loc[global_forecast_df_start_idx:global_forecast_df_end_idx, 'price_Q50'] = self.usd_fil_exchange_df['price_Q50'].values
+        self.model.global_forecast_df.loc[global_forecast_df_start_idx:global_forecast_df_end_idx, 'price_Q75'] = self.usd_fil_exchange_df['price_Q75'].values
+        self.model.global_forecast_df.loc[global_forecast_df_start_idx:global_forecast_df_end_idx, 'price_Q95'] = self.usd_fil_exchange_df['price_Q95'].values
 
     def step(self):
         # nothing to do b/c all predictions are made upfront

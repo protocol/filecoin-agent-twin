@@ -154,13 +154,13 @@ class GreedyAgent(SPAgent):
         return pibs_to_onboard
 
     def forecast_day_rewards_per_sector(self, forecast_start_date, forecast_length):
-        df_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(forecast_start_date)].index[0]
-
-        # better method is to forecast the RBP and use that to compute minting rate.
-
-        # lazy method
-        future_rewards_per_sector = np.ones(forecast_length) * self.model.filecoin_df.loc[df_idx-1, 'day_rewards_per_sector']
+        k = 'day_rewards_per_sector_forecast_' + self.optimism_to_dayrewardspersector_quantile_str[self.agent_optimism]
+        start_idx = self.model.global_forecast_df[pd.to_datetime(self.model.global_forecast_df['date']) == pd.to_datetime(forecast_start_date)].index[0]
+        end_idx = start_idx + forecast_length
+        future_rewards_per_sector = self.model.global_forecast_df.loc[start_idx:end_idx, k].values
+        
         return future_rewards_per_sector
+
 
     def estimate_roi(self, sector_duration, date_in):
         filecoin_df_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(date_in)].index[0]
