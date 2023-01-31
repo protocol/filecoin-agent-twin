@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 import numpy as np
+import pandas as pd
 import jax.numpy as jnp
 
 from mechafil import minting
@@ -62,6 +63,8 @@ class MintingRateProcess:
         self.forecast_history = forecast_history
         self.update_dates = [start_date + timedelta(days=i) for i in range(0, self.model.sim_len, update_every_days)]
 
+        self.minting_rate_from_start = minting.compute_baseline_power_array(constants.NETWORK_DATA_START, self.model.end_date + timedelta(days=constants.MAX_SECTOR_DURATION_DAYS))
+
 
     def step(self):
         ### called every tick
@@ -73,7 +76,7 @@ class MintingRateProcess:
             cum_capped_power_start = self.model.filecoin_df['cum_capped_power'][self.model.current_day - 1]
             # train MCMC forecaster
             y_train = jnp.array(historical_rb_onboard)
-            forecast_length = (self.model.end_date - self.model.current_date).days
+            forecast_length = (self.model.end_date - self.model.current_date).days + constants.MAX_SECTOR_DURATION_DAYS
             y_scale = 1.0
             rb_onboard_forecast_pib = mcmc_forecast.mcmc_predict(y_train/y_scale, forecast_length,
                                                                  num_warmup_mcmc=self.num_warmup_mcmc, 
@@ -83,7 +86,21 @@ class MintingRateProcess:
                                                                  verbose=self.verbose)
             rb_onboard_forecast_pib = rb_onboard_forecast_pib * y_scale
 
-            minting_df_future = self.model.filecoin_df[self.model.current_day:][['date', 'network_baseline', 'cum_simple_reward']]
+            minting_df_future = self.model.filecoin_df[self.model.current_day:][['days', 'date', 'network_baseline', 'cum_simple_reward']]
+            ## Generate forecast beyond end of simulation since agents will need this information when making decisions close to
+            ## the end of the simulation
+            minting_df_max_sector_duration_days = pd.DataFrame()
+            minting_df_max_sector_duration_days['date'] = [minting_df_future['date'].values[-1] + timedelta(days=i) for i in range(1, constants.MAX_SECTOR_DURATION_DAYS + 1)]
+            minting_df_max_sector_duration_days['network_baseline'] = self.minting_rate_from_start[-len(minting_df_max_sector_duration_days):]
+            start_day = minting_df_future['days'].values[-1] + 1
+            minting_df_max_sector_duration_days['days'] = range(start_day, start_day + constants.MAX_SECTOR_DURATION_DAYS)
+            minting_df_max_sector_duration_days['cum_simple_reward'] = minting_df_max_sector_duration_days['days'].pipe(minting.cum_simple_minting)
+
+            # print(minting_df_future.iloc[-1][['days', 'date', 'network_baseline', 'cum_simple_reward']])
+            # print(minting_df_max_sector_duration_days.iloc[0][['days', 'date', 'network_baseline', 'cum_simple_reward']])
+
+            minting_df_future = pd.concat([minting_df_future, minting_df_max_sector_duration_days], ignore_index=True)
+
             # update minting rate forecasts for each mcmc path
             num_mcmc = self.num_chains_mcmc * self.num_samples_mcmc
             
