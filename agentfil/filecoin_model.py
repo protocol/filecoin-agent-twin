@@ -8,7 +8,7 @@ from mechafil import data, vesting, minting, supply, locking
 
 from . import constants
 from . import sp_agent
-from . import minting_rate_process
+from . import rewards_per_sector_process
 from . import price_process
 
 
@@ -152,7 +152,7 @@ class FilecoinModel(mesa.Model):
         self.global_forecast_df = pd.concat([self.global_forecast_df, pd.DataFrame({'date': future_dates})], ignore_index=True)
         
         self.price_process = price_process.PriceProcess(self, **self.price_process_kwargs)
-        self.minting_process = minting_rate_process.MintingRateProcess(self, **self.minting_process_kwargs)
+        self.minting_process = rewards_per_sector_process.RewardsPerSectorProcess(self, **self.minting_process_kwargs)
 
     def _update_global_forecasts(self):
         self.price_process.step()
