@@ -10,6 +10,13 @@ from scenario_generator import mcmc_forecast
 from . import constants
 
 class RewardsPerSectorProcess:
+    """
+    Predicts the rewards/sector by:
+        1) using MCMC to forecast Raw-Byte Onboarding Power / day and then using the 
+        mechanistic equations to convert that to the minting rate.
+        2) using MCMC to forecast QA onboarding power / day, and combining that
+        with the minting rate prediction to get the rewards/sector.
+    """
     def __init__(self, filecoin_model, 
                  forecast_history=180, update_every_days=90,
                  num_warmup_mcmc: int = 500,
@@ -20,9 +27,6 @@ class RewardsPerSectorProcess:
                  keep_previous_predictions: bool = False,
                  keep_power_predictions: bool = False):
         """
-        Predicts the future minting rate by using MCMC to forecast the total Raw Byte Onboarding Power / day
-        and then using the mechanistic equations to convert that to the minting rate.
-
         Parameters
         ----------
         filecoin_model : FilecoinModel
