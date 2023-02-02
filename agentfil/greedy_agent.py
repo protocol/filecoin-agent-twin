@@ -50,7 +50,7 @@ class GreedyAgent(SPAgent):
     """
 
     def __init__(self, model, id, historical_power, start_date, end_date, 
-                 accounting_df=None, random_seed=1111, agent_optimism=3):
+                 random_seed=1111, agent_optimism=3):
         """
         Args:
             model: the model object
@@ -69,13 +69,13 @@ class GreedyAgent(SPAgent):
         self.random_seed = random_seed
         self.duration_vec_days = np.asarray([6, 12, 36])*30
         self.agent_optimism = agent_optimism
-
-        self.validate(accounting_df)
+        self.validate()
+        
         self.map_optimism_scales()
 
         # good for debugging agent actions.  
         # consider paring it down when not debugging for simulation speed
-        self.agent_info_df = copy.copy(accounting_df)
+        self.agent_info_df = pd.DataFrame({'date': pd.date_range(start_date, end_date, freq='D')[:-1]})
         self.agent_info_df['roi_estimate_6mo'] = 0
         self.agent_info_df['roi_estimate_1y'] = 0
         self.agent_info_df['roi_estimate_3y'] = 0
@@ -90,7 +90,6 @@ class GreedyAgent(SPAgent):
         self.agent_info_df['deal_renewed'] = 0
         self.agent_info_df['deal_onboarded_duration'] = 0
         self.agent_info_df['deal_renewed_duration'] = 0
-        self.agent_info_df['USD_used'] = 0
 
     def map_optimism_scales(self):
         self.optimism_to_price_quantile_str = {
@@ -109,24 +108,9 @@ class GreedyAgent(SPAgent):
         }
         
 
-    def validate(self, accounting_df):
-        if accounting_df is None:
-            raise ValueError("The accounting_df must be specified.")
-        # check the length of the usd_df and the bounds of the dates
-        if accounting_df.shape[0] != (self.end_date - self.start_date).days:
-            raise ValueError("The length of the usd_df must be the same as the simulation length.")
-        if pd.to_datetime(accounting_df.iloc[0]['date']) != pd.to_datetime(self.start_date):
-            raise ValueError("The first date in the usd_df must be the same as the start_date.")
-        # if self.accounting_df.iloc[-1]['date'] != self.end_date:
-        #     raise ValueError("The last date in the usd_df must be the same as the end_date.")
-        
-        if 'date' not in accounting_df.columns:
-            raise ValueError("The usd_df must have a date column.")
-        if 'USD' not in accounting_df.columns:
-            raise ValueError("The usd_df must have a USD column.")
-
+    def validate(self):
         assert self.agent_optimism >= 1 and self.agent_optimism <= 5, \
-                "fil_usd_price_optimism_scale must be between 1 and 5"
+                "optimism must be an integer between 1 and 5"
         assert type(self.agent_optimism) == int, "fil_usd_price_optimism_scale must be an integer"
 
     def get_available_FIL(self, date_in):
