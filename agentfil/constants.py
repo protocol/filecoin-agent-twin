@@ -13,8 +13,8 @@ MIN_VALUE=1e-6
 
 # TODO: is this reasonable? There should be some limitation based on the blockchain,
 # but I'm not sure. If all of this is FIL+, this would mean that the maximum onboardable
-# power per day is 25 * 10 = 250 PiB QAP, which seems super high.
-MAX_DAY_ONBOARD_RBP_PIB=25
+# power per day is 75 * 10 = 750 PiB QAP, which seems super high.
+MAX_DAY_ONBOARD_RBP_PIB=75  # this is close to the historical max
 
 FIL_PLUS_MULTIPLER=10
 

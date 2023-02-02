@@ -50,8 +50,7 @@ class GreedyAgent(SPAgent):
     """
 
     def __init__(self, model, id, historical_power, start_date, end_date, 
-                 accounting_df=None, random_seed=1111, agent_optimism=3,
-                 forecast_num_mc=200):
+                 accounting_df=None, random_seed=1111, agent_optimism=3):
         """
         Args:
             model: the model object
@@ -64,15 +63,12 @@ class GreedyAgent(SPAgent):
             random_seed: the random seed for the agent
             fil_usd_price_optimism_scale: integer between 1 and 5 representing the optimism of the agent, 
                                           1 being most pessimistic and 5 being most optimistic
-            forecast_num_mc: the number of monte carlo simulations to run when forecasting anything in the agent
-                some forecasting happens every time step, so be mindful of this parameter when running simulations
         """
         super().__init__(model, id, historical_power, start_date, end_date)
         
         self.random_seed = random_seed
         self.duration_vec_days = np.asarray([6, 12, 36])*30
         self.agent_optimism = agent_optimism
-        self.forecast_num_mc = forecast_num_mc
 
         self.validate(accounting_df)
         self.map_optimism_scales()
@@ -150,7 +146,8 @@ class GreedyAgent(SPAgent):
             pibs_to_onboard = available_FIL / pledge_per_pib
         else:
             pibs_to_onboard = 0
-        
+        if np.isnan(pibs_to_onboard):
+            raise ValueError("Pibs to onboard yielded NAN")
         return pibs_to_onboard
 
     def forecast_day_rewards_per_sector(self, forecast_start_date, forecast_length):
@@ -176,6 +173,9 @@ class GreedyAgent(SPAgent):
         duration_yr = sector_duration / 360.0  
         roi_estimate_annualized = (1.0+roi_estimate)**(1.0/duration_yr) - 1
         
+        # if np.isnan(future_rewards_per_sector_estimate.sum()) or np.isnan(prev_day_pledge_per_QAP) or np.isnan(roi_estimate) or np.isnan(roi_estimate_annualized):
+        #     print(self.unique_id, future_rewards_per_sector_estimate.sum(), prev_day_pledge_per_QAP, roi_estimate, roi_estimate_annualized)
+
         return roi_estimate_annualized
 
     def get_exchange_rate(self, date_in):

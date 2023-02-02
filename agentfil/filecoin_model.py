@@ -593,7 +593,12 @@ class FilecoinModel(mesa.Model):
         network_QAP = self.filecoin_df.iloc[day_idx]["total_qa_power_eib"] * constants.EIB                  # in bytes
         network_baseline = self.filecoin_df.iloc[day_idx]["network_baseline"]                               # in bytes
         day_network_reward = self.filecoin_df.iloc[day_idx]["day_network_reward"]
-        renewal_rate = self.filecoin_df.iloc[day_idx]["day_renewed_rbp_pib"] / self.filecoin_df.iloc[day_idx]["day_sched_expire_rbp_pib"]
+        
+        day_sched_expire_rbp_pib = self.filecoin_df.iloc[day_idx]["day_sched_expire_rbp_pib"]
+        if day_sched_expire_rbp_pib == 0:
+            renewal_rate = 0.0
+        else:
+            renewal_rate = self.filecoin_df.iloc[day_idx]["day_renewed_rbp_pib"] / day_sched_expire_rbp_pib
 
         prev_network_locked_reward = self.filecoin_df.iloc[day_idx-1]["network_locked_reward"]
         prev_network_locked_pledge = self.filecoin_df.iloc[day_idx-1]["network_locked_pledge"]
@@ -670,13 +675,15 @@ class FilecoinModel(mesa.Model):
         # add ROI to trajectory df
         day_locked_pledge = self.filecoin_df.loc[day_idx, 'day_locked_pledge']
         day_renewed_pledge = self.filecoin_df.loc[day_idx, 'day_renewed_pledge']
-        day_onboarded_power_QAP = self.filecoin_df.loc[day_idx, "day_onboarded_qap_pib"] * constants.PIB   # in bytes
+        # FLAG: avoid division by zero - does it make sense to do this?
+        day_onboarded_power_QAP = max(self.filecoin_df.loc[day_idx, "day_onboarded_qap_pib"] * constants.PIB, constants.MIN_VALUE)   # in bytes
+        self.filecoin_df.loc[day_idx, 'day_pledge_per_QAP'] = constants.SECTOR_SIZE * (day_locked_pledge-day_renewed_pledge)/day_onboarded_power_QAP
 
         day_network_reward = self.filecoin_df.iloc[day_idx]["day_network_reward"]
-        network_QAP = self.filecoin_df.iloc[day_idx]["total_qa_power_eib"] * constants.EIB                  # in bytes
-
-        self.filecoin_df.loc[day_idx, 'day_pledge_per_QAP'] = constants.SECTOR_SIZE * (day_locked_pledge-day_renewed_pledge)/day_onboarded_power_QAP
+        # FLAG: avoid division by zero - does it make sense to do this?
+        network_QAP = max(self.filecoin_df.iloc[day_idx]["total_qa_power_eib"] * constants.EIB, constants.MIN_VALUE)                  # in bytes
         self.filecoin_df.loc[day_idx, 'day_rewards_per_sector'] = constants.SECTOR_SIZE * day_network_reward / network_QAP
+        
         
     def _update_agents(self, update_day=None):
         day_idx = self.current_day if update_day is None else update_day
