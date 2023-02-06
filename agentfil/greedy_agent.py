@@ -70,7 +70,7 @@ class GreedyAgent(SPAgent):
         self.duration_vec_days = np.asarray([6, 12, 36])*30
         self.agent_optimism = agent_optimism
         self.validate()
-        
+
         self.map_optimism_scales()
 
         # good for debugging agent actions.  
@@ -112,16 +112,6 @@ class GreedyAgent(SPAgent):
         assert self.agent_optimism >= 1 and self.agent_optimism <= 5, \
                 "optimism must be an integer between 1 and 5"
         assert type(self.agent_optimism) == int, "fil_usd_price_optimism_scale must be an integer"
-
-    def get_available_FIL(self, date_in):
-        accounting_df_idx = self.accounting_df[pd.to_datetime(self.accounting_df['date']) == pd.to_datetime(date_in)].index[0]
-        accounting_df_subset = self.accounting_df.loc[0:accounting_df_idx, :]
-        available_FIL = accounting_df_subset['reward_FIL'].cumsum() \
-                        - accounting_df_subset['onboard_pledge_FIL'].cumsum() \
-                        - accounting_df_subset['renew_pledge_FIL'].cumsum() \
-                        + accounting_df_subset['onboard_scheduled_pledge_release_FIL'].cumsum() \
-                        + accounting_df_subset['renew_scheduled_pledge_release_FIL'].cumsum()
-        return available_FIL.values[-1]
 
     def get_max_onboarding_qap_pib(self, date_in):
         available_FIL = self.get_available_FIL(date_in)

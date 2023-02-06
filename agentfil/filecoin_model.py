@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from scipy.optimize import fsolve
 from datetime import timedelta
+import math
 
 from mechafil import data, vesting, minting, supply, locking
 
@@ -10,6 +11,7 @@ from . import constants
 from . import sp_agent
 from . import rewards_per_sector_process
 from . import price_process
+from . import capital_inflow_process
 
 
 def solve_geometric(a, n):
@@ -51,7 +53,9 @@ class FilecoinModel(mesa.Model):
     def __init__(self, n, start_date, end_date, 
                  agent_types=None, agent_kwargs_list=None, agent_power_distributions=None,
                  compute_cs_from_networkdatastart=True, use_historical_gas=False,
-                 price_process_kwargs=None, minting_process_kwargs=None, random_seed=1234):
+                 price_process_kwargs=None, minting_process_kwargs=None, capital_inflow_process_kwargs=None,
+                 capital_inflow_distribution_policy=None, capital_inflow_distribution_policy_kwargs=None,
+                 random_seed=1234):
         """
         start_date: the start date of the simulation
         end_date: the end date of the simulation
@@ -73,18 +77,31 @@ class FilecoinModel(mesa.Model):
                             are computed as a constant average value. In backtesting, it was observed
                             that use_historical_gas=False leads to better backtesting results. This option
                             is only relevant when compute_cs_from_start=True.
-        forecast_num_mc: the number of monte carlo simulations to run when forecasting things using probabilistic methods.
-                         be mindful of setting this number too large as this will slow down the simulation.
+        price_process_kwargs: a dictionary of keyword arguments to pass to the price process
+        minting_process_kwargs: a dictionary of keyword arguments to pass to the minting process
+        capital_inflow_process_kwargs: a dictionary of keyword arguments to pass to the capital inflow process
+        capital_inflow_distribution_policy: a function that determines the percentage of total capital inflow that is allocated to a given miner
+        capital_inflow_distribution_policy_kwargs: a dictionary of keyword arguments to pass to the capital inflow distribution policy
         """
         self.num_agents = n
         self.MAX_DAY_ONBOARD_RBP_PIB_PER_AGENT = constants.MAX_DAY_ONBOARD_RBP_PIB / n
         
+        # TODO: I think these should become configuration objects, this is getting a bit wary ... 
         self.price_process_kwargs = price_process_kwargs
         if self.price_process_kwargs is None:
             self.price_process_kwargs = {}
         self.minting_process_kwargs = minting_process_kwargs
         if self.minting_process_kwargs is None:
             self.minting_process_kwargs = {}
+        self.capital_inflow_process_kwargs = capital_inflow_process_kwargs
+        if self.capital_inflow_process_kwargs is None:
+            self.capital_inflow_process_kwargs = {}
+        self.capital_inflow_distribution_policy = capital_inflow_distribution_policy
+        if self.capital_inflow_distribution_policy is None:
+            self.capital_inflow_distribution_policy = capital_inflow_process.power_proportional_capital_distribution_policy
+        self.capital_inflow_distribution_policy_kwargs = capital_inflow_distribution_policy_kwargs
+        if self.capital_inflow_distribution_policy_kwargs is None:
+            self.capital_inflow_distribution_policy_kwargs = {}
 
         self.random_seed = random_seed
         self.schedule = mesa.time.SimultaneousActivation(self)
@@ -116,9 +133,10 @@ class FilecoinModel(mesa.Model):
 
         self._initialize_network_description_df()
         self._download_historical_data()
-        self._setup_global_forecasts()
         self._seed_agents(agent_types=agent_types, agent_kwargs_list=agent_kwargs_list)
         self._fast_forward_to_simulation_start()
+
+        self._setup_global_forecasts()
 
     def step(self):
         # update global forecasts
@@ -133,6 +151,9 @@ class FilecoinModel(mesa.Model):
         self._update_sched_expire_pledge(self.current_date)
         self._update_circulating_supply()
         self._update_generated_quantities()
+
+        self._step_post_network_updates()
+
         self._update_agents()
         # update any other inputs to agents
 
@@ -153,10 +174,16 @@ class FilecoinModel(mesa.Model):
         
         self.price_process = price_process.PriceProcess(self, **self.price_process_kwargs)
         self.minting_process = rewards_per_sector_process.RewardsPerSectorProcess(self, **self.minting_process_kwargs)
+        self.capital_inflow_process = capital_inflow_process.CapitalInflowProcess(self, **self.capital_inflow_process_kwargs)
 
     def _update_global_forecasts(self):
+        # call stuff here that should be updated before agents make decisions
         self.price_process.step()
         self.minting_process.step()
+    
+    def _step_post_network_updates(self):
+        # call stuff here that should be run after all network statistics have been updated
+        self.capital_inflow_process.step()
 
     def estimate_pledge_for_qa_power(self, date_in, qa_power_pib):
         """
@@ -318,8 +345,8 @@ class FilecoinModel(mesa.Model):
         # generated quantities which are only updated from simulation_start
         self.filecoin_df['day_pledge_per_QAP'] = 0.0
         self.filecoin_df['day_rewards_per_sector'] = 0.0
-        self.filecoin_df['1y_return_per_sector'] = 0.0
-        self.filecoin_df['1y_sector_roi'] = 0.0
+        self.filecoin_df['capital_inflow_pct'] = 0.0
+        self.filecoin_df['capital_inflow_FIL'] = 0.0
     
     def _fast_forward_to_simulation_start(self):
         current_date = constants.NETWORK_DATA_START
@@ -485,7 +512,7 @@ class FilecoinModel(mesa.Model):
         day_idx = self.current_day if day_idx is None else day_idx
 
         self.filecoin_df.loc[day_idx, 'day_onboarded_rbp_pib'] = day_macro_info['day_onboarded_rbp_pib']
-        ## @tmellan - min to prevent divide by 0 error - is this OK?
+        ## FLAG: div / 0 protection
         self.filecoin_df.loc[day_idx, 'day_onboarded_qap_pib'] = max(day_macro_info['day_onboarded_qap_pib'], constants.MIN_VALUE)
         self.filecoin_df.loc[day_idx, 'day_renewed_rbp_pib'] = day_macro_info['day_renewed_rbp_pib']
         self.filecoin_df.loc[day_idx, 'day_renewed_qap_pib'] = day_macro_info['day_renewed_qap_pib']
@@ -496,7 +523,7 @@ class FilecoinModel(mesa.Model):
         self.filecoin_df.loc[day_idx, 'day_network_rbp_pib'] = day_macro_info['day_network_rbp_pib']
         self.filecoin_df.loc[day_idx, 'day_network_qap_pib'] = day_macro_info['day_network_qap_pib']
 
-        ## @tmellan - min to prevent divide by 0 error - is this OK?
+        ## FLAG: div / 0 protection
         self.filecoin_df.loc[day_idx, 'total_raw_power_eib'] = max(self.filecoin_df.loc[day_idx, 'day_network_rbp_pib'] / 1024.0 + self.filecoin_df.loc[day_idx-1, 'total_raw_power_eib'], constants.MIN_VALUE)
         self.filecoin_df.loc[day_idx, 'total_qa_power_eib'] = max(self.filecoin_df.loc[day_idx, 'day_network_qap_pib'] / 1024.0 + self.filecoin_df.loc[day_idx-1, 'total_qa_power_eib'], constants.MIN_VALUE)
 
@@ -694,6 +721,7 @@ class FilecoinModel(mesa.Model):
 
         # TODO: add termination penalties here
 
+        total_day_capital_inflow_FIL = self.filecoin_df.loc[day_idx, 'capital_inflow_FIL']
         for agent_info in self.agents:
             agent = agent_info['agent']
             agent_day_power_stats = agent.get_power_at_date(date_in)
@@ -709,9 +737,17 @@ class FilecoinModel(mesa.Model):
             agent_accounting_df = agent.accounting_df
             accounting_df_idx = agent_accounting_df[agent_accounting_df['date'] == date_in].index[0]
 
-            # # 25 % vests immediately
+            # 25 % vests immediately
             agent_accounting_df.loc[accounting_df_idx, 'reward_FIL'] += agent_reward * 0.25
             # remainder vests linearly over the next 180 days
             agent_accounting_df.loc[accounting_df_idx+1:accounting_df_idx+180, 'reward_FIL'] += (agent_reward * 0.75)/180
+
+            # if there is any capital inflow FIL, distribute it to the agents according to the inflow distribution policy
+            if total_day_capital_inflow_FIL > 0.0:
+                # TODO: need to figure out how to generalize the inputs to the distribution inflow policy function
+                FIL_to_agent = math.floor(self.capital_inflow_distribution_policy(total_agent_qap_onboarded, 
+                                                                                  total_day_onboard_and_renew_pib, 
+                                                                                  total_day_capital_inflow_FIL))
+                agent.accounting_df.loc[accounting_df_idx, 'capital_inflow_FIL'] += FIL_to_agent
 
             agent.post_global_step()
