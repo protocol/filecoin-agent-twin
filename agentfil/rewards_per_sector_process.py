@@ -10,6 +10,13 @@ from scenario_generator import mcmc_forecast
 from . import constants
 
 class RewardsPerSectorProcess:
+    """
+    Predicts the rewards/sector by:
+        1) using MCMC to forecast Raw-Byte Onboarding Power / day and then using the 
+        mechanistic equations to convert that to the minting rate.
+        2) using MCMC to forecast QA onboarding power / day, and combining that
+        with the minting rate prediction to get the rewards/sector.
+    """
     def __init__(self, filecoin_model, 
                  forecast_history=180, update_every_days=90,
                  num_warmup_mcmc: int = 500,
@@ -18,11 +25,9 @@ class RewardsPerSectorProcess:
                  num_chains_mcmc: int = 2,
                  verbose: bool = True,
                  keep_previous_predictions: bool = False,
-                 keep_power_predictions: bool = False):
+                 keep_power_predictions: bool = False,
+                 seed=1234):
         """
-        Predicts the future minting rate by using MCMC to forecast the total Raw Byte Onboarding Power / day
-        and then using the mechanistic equations to convert that to the minting rate.
-
         Parameters
         ----------
         filecoin_model : FilecoinModel
@@ -56,6 +61,7 @@ class RewardsPerSectorProcess:
         self.verbose = verbose
         self.keep_previous_predictions = keep_previous_predictions
         self.keep_power_predictions = keep_power_predictions
+        self.random_state = np.random.RandomState(seed)
 
         self.model = filecoin_model
 
@@ -65,45 +71,98 @@ class RewardsPerSectorProcess:
 
         self.minting_rate_from_start = minting.compute_baseline_power_array(constants.NETWORK_DATA_START, self.model.end_date + timedelta(days=constants.MAX_SECTOR_DURATION_DAYS))
 
+    def dither(self, x, range_pct=0.01):
+        zero_noise_add = self.random_state.beta(1,1, size=(len(x)))  # use beta distribution so we never go negative, since this is used for power prediction primarily
+        min_val = np.min(x)
+        max_val = np.max(x)
+        range = max_val - min_val
+        x = x + (zero_noise_add * range * range_pct)  # dither 3% of the range
+        return x
 
     def step(self):
         ### called every tick
         if self.model.current_date in self.update_dates:
-            # get relevant historical data
-            historical_rb_onboard = self.model.filecoin_df['day_onboarded_rbp_pib'][self.model.current_day - self.forecast_history : self.model.current_day].values
-            historical_qa_onboard = self.model.filecoin_df['day_onboarded_qap_pib'][self.model.current_day - self.forecast_history : self.model.current_day].values
+            forecast_length = (self.model.end_date - self.model.current_date).days + constants.MAX_SECTOR_DURATION_DAYS
 
             total_raw_power_eib_start = self.model.filecoin_df['total_raw_power_eib'][self.model.current_day - 1]
             total_qa_power_eib_start = self.model.filecoin_df['total_qa_power_eib'][self.model.current_day - 1]
             cum_capped_power_start = self.model.filecoin_df['cum_capped_power'][self.model.current_day - 1]
-            
-            # forecast rb onboard
-            y_train = jnp.array(historical_rb_onboard)
-            forecast_length = (self.model.end_date - self.model.current_date).days + constants.MAX_SECTOR_DURATION_DAYS
-            y_scale = 1.0
-            rb_onboard_forecast_pib = mcmc_forecast.mcmc_predict(y_train/y_scale, forecast_length,
-                                                                 num_warmup_mcmc=self.num_warmup_mcmc, 
-                                                                 num_samples_mcmc=self.num_samples_mcmc,
-                                                                 seasonality_mcmc=self.seasonality_mcmc, 
-                                                                 num_chains_mcmc=self.num_chains_mcmc,
-                                                                 verbose=self.verbose)
-            rb_onboard_forecast_pib = rb_onboard_forecast_pib * y_scale
 
-            # forecast qa onboard
-            y_train = jnp.array(historical_qa_onboard)
-            forecast_length = (self.model.end_date - self.model.current_date).days + constants.MAX_SECTOR_DURATION_DAYS
-            y_scale = 1.0
-            qa_onboard_forecast_pib = mcmc_forecast.mcmc_predict(y_train/y_scale, forecast_length,
-                                                                 num_warmup_mcmc=self.num_warmup_mcmc, 
-                                                                 num_samples_mcmc=self.num_samples_mcmc,
-                                                                 seasonality_mcmc=self.seasonality_mcmc, 
-                                                                 num_chains_mcmc=self.num_chains_mcmc,
-                                                                 verbose=self.verbose)
-            qa_onboard_forecast_pib = qa_onboard_forecast_pib * y_scale
+            # get relevant historical data
+            historical_rb_onboard = self.model.filecoin_df['day_onboarded_rbp_pib'][self.model.current_day - self.forecast_history : self.model.current_day].values
+            historical_qa_onboard = self.model.filecoin_df['day_onboarded_qap_pib'][self.model.current_day - self.forecast_history : self.model.current_day].values
 
-            # ensure no predictions are negative
-            rb_onboard_forecast_pib = jnp.maximum(rb_onboard_forecast_pib, constants.MIN_VALUE)
-            qa_onboard_forecast_pib = jnp.maximum(qa_onboard_forecast_pib, constants.MIN_VALUE)
+            # ##################################################################################################
+            # create a simplistic extension of average historical power to the future
+            # adding this in until we can diagnose the nans from MCMC
+            num_mc = self.num_chains_mcmc * self.num_samples_mcmc
+            deviation_pct = 0.25
+            rb_onboard_forecast_pib = np.mean(historical_rb_onboard) + self.random_state.normal(0, np.std(historical_rb_onboard) * deviation_pct, size=(num_mc, forecast_length))
+            qa_onboard_forecast_pib = np.mean(historical_qa_onboard) + self.random_state.normal(0, np.std(historical_qa_onboard) * deviation_pct, size=(num_mc, forecast_length))
+            rb_onboard_forecast_pib = np.maximum(rb_onboard_forecast_pib, constants.MIN_VALUE)
+            qa_onboard_forecast_pib = np.maximum(qa_onboard_forecast_pib, constants.MIN_VALUE)
+            # ##################################################################################################
+
+            # ##################################################################################################
+            # ######## MCMC based Forecasting
+
+            # # dither the input to prevent NANs from MCMC
+            # historical_rb_onboard = self.dither(historical_rb_onboard, range_pct=0.1)
+            # historical_qa_onboard = self.dither(historical_qa_onboard, range_pct=0.1)
+
+            # # forecast rb onboard
+            # y_train_rb = jnp.array(historical_rb_onboard)
+            # y_scale = 1.0
+            # rb_onboard_forecast_pib = mcmc_forecast.mcmc_predict(y_train_rb/y_scale, forecast_length,
+            #                                                      num_warmup_mcmc=self.num_warmup_mcmc, 
+            #                                                      num_samples_mcmc=self.num_samples_mcmc,
+            #                                                      seasonality_mcmc=self.seasonality_mcmc, 
+            #                                                      num_chains_mcmc=self.num_chains_mcmc,
+            #                                                      verbose=self.verbose)
+            # rb_onboard_forecast_pib = rb_onboard_forecast_pib * y_scale
+
+            # # forecast qa onboard
+            # y_train_qa = jnp.array(historical_qa_onboard)
+            # forecast_length = (self.model.end_date - self.model.current_date).days + constants.MAX_SECTOR_DURATION_DAYS
+            # y_scale = 1.0
+            # qa_onboard_forecast_pib = mcmc_forecast.mcmc_predict(y_train_qa/y_scale, forecast_length,
+            #                                                      num_warmup_mcmc=self.num_warmup_mcmc, 
+            #                                                      num_samples_mcmc=self.num_samples_mcmc,
+            #                                                      seasonality_mcmc=self.seasonality_mcmc, 
+            #                                                      num_chains_mcmc=self.num_chains_mcmc,
+            #                                                      verbose=self.verbose)
+            # qa_onboard_forecast_pib = qa_onboard_forecast_pib * y_scale
+
+            # rb_pred_np = np.asarray(rb_onboard_forecast_pib)
+            # qa_pred_np = np.asarray(qa_onboard_forecast_pib)
+            # if np.isnan(rb_pred_np).any() or np.isnan(qa_pred_np).any():
+            #     import pickle
+            #     with open('nan_onboard.pkl', 'wb') as f:
+            #         output_dict = {
+            #             'y_train_rb': np.asarray(y_train_rb),
+            #             'y_train_qa': np.asarray(y_train_qa),
+            #             'forecast_length': forecast_length,
+            #             'current_day': self.model.current_day,
+            #             'current_date': self.model.current_date,
+            #             'forecast_history': self.forecast_history,
+            #             'filecoin_df': self.model.filecoin_df,
+            #             'y_scale': y_scale,
+            #             'num_warmup_mcmc': self.num_warmup_mcmc,
+            #             'num_samples_mcmc': self.num_samples_mcmc,
+            #             'seasonality_mcmc': self.seasonality_mcmc,
+            #             'num_chains_mcmc': self.num_chains_mcmc,
+            #             'verbose': self.verbose,
+            #             'rb_onboard_forecast_pib': rb_pred_np,
+            #             'qa_onboard_forecast_pib': qa_pred_np,
+            #         }
+            #         pickle.dump(output_dict, f)
+            #     raise ValueError("NAN")
+
+            # # ensure all predictions > 0
+            # rb_onboard_forecast_pib = jnp.maximum(rb_onboard_forecast_pib, constants.MIN_VALUE)
+            # qa_onboard_forecast_pib = jnp.maximum(qa_onboard_forecast_pib, constants.MIN_VALUE)
+
+            # ##################################################################################################
 
             minting_df_future = self.model.filecoin_df[self.model.current_day:][['days', 'date', 'network_baseline', 'cum_simple_reward']]
             ## Generate forecast beyond end of simulation since agents will need this information when making decisions close to
@@ -127,10 +186,20 @@ class RewardsPerSectorProcess:
             day_rewards_per_sector_pred = []
             for i in range(num_mcmc):
                 rb_onboard_forecast_pib_i = np.asarray(rb_onboard_forecast_pib[i, :])
+                qa_onboard_forecast_pib_i = np.asarray(qa_onboard_forecast_pib[i, :])
+
+                # # not sure why mcmc is predicting nan's, even though it seems the inputs to MCMC are not NAN
+                # if np.isnan(rb_onboard_forecast_pib_i).any() or np.isnan(qa_onboard_forecast_pib_i).any():
+                #     continue
+
                 total_raw_power_eib = total_raw_power_eib_start + np.cumsum(rb_onboard_forecast_pib_i) / 1024.0
-                total_qa_power_eib = total_qa_power_eib_start + np.cumsum(qa_onboard_forecast_pib[i, :]) / 1024.0
+                total_qa_power_eib = total_qa_power_eib_start + np.cumsum(qa_onboard_forecast_pib_i) / 1024.0
                 total_qa_power_eib = np.asarray(total_qa_power_eib, dtype=np.longdouble)  # NOTE: this is necessary to avoid overflow when scaling EiB to Bytes
                 
+                # FLAG: divide by zero protection
+                total_raw_power_eib = np.maximum(total_raw_power_eib, constants.MIN_VALUE)
+                total_qa_power_eib = np.maximum(total_qa_power_eib, constants.MIN_VALUE)
+
                 capped_power = np.minimum(constants.EIB * total_raw_power_eib, minting_df_future['network_baseline'].values)
                 cum_capped_power = np.cumsum(capped_power) + cum_capped_power_start
                 network_time = minting.network_time(cum_capped_power)
@@ -143,10 +212,33 @@ class RewardsPerSectorProcess:
                 
                 if self.keep_power_predictions:
                     rb_onboard_pred.append(rb_onboard_forecast_pib_i)
-                    qa_onboard_pred.append(qa_onboard_forecast_pib[i, :])
+                    qa_onboard_pred.append(qa_onboard_forecast_pib_i)
                 day_network_rewards_pred.append(day_network_reward_i)
+                
                 day_i_reward_per_sector = constants.SECTOR_SIZE * day_network_reward_i / (total_qa_power_eib * constants.EIB)
                 day_rewards_per_sector_pred.append(day_i_reward_per_sector)
+                # if np.isnan(day_i_reward_per_sector).any():
+                #     print('Index i', i, 'has nan')
+                #     if np.isnan(rb_onboard_forecast_pib_i).any():
+                #         print('WARNING: nan in rb_onboard_forecast_pib_i')
+
+                #     if np.isnan(total_raw_power_eib).any():
+                #         print('start_power', total_raw_power_eib_start, 'WARNING: nan in total_raw_power_eib')
+                    
+                #     if np.isnan(minting_df_future['network_baseline'].values).any():
+                #         print('WARNING: nan in minting_df_future[network_baseline]')
+
+                #     if np.isnan(day_network_reward_i).any():
+                #         print('WARNING: nan in day_network_reward_i')
+
+                #     if np.isnan(total_qa_power_eib).any():
+                #         print('WARNING: nan in total_qa_power_eib')
+
+                #     if np.isnan(day_i_reward_per_sector).any():
+                #         print('WARNING: nan in day_rewards_per_sector_pred')
+                        
+                #     print('WARNING: nan in day_rewards_per_sector_pred')
+                #     # raise ValueError('nan in day_rewards_per_sector_pred')
 
             # compute quantiles
             date_str = self.model.current_date.strftime('%Y-%m-%d')

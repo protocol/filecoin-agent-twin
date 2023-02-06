@@ -1,5 +1,6 @@
 import mesa
 from datetime import datetime, timedelta
+import numpy as np
 from numpy.random import default_rng
 import pandas as pd
 
@@ -39,6 +40,7 @@ class SPAgent(mesa.Agent):
         self.accounting_df['renew_pledge_FIL'] = 0
         self.accounting_df['onboard_scheduled_pledge_release_FIL'] = 0
         self.accounting_df['renew_scheduled_pledge_release_FIL'] = 0
+        self.accounting_df['capital_inflow_FIL'] = 0
 
         self.allocate_historical_power(agent_seed)
 
@@ -154,3 +156,15 @@ class SPAgent(mesa.Agent):
             # self.scheduled_expire_pledge[global_ii] = row['total_pledge']
 
             global_ii += 1
+
+    def get_available_FIL(self, date_in):
+        accounting_df_idx = self.accounting_df[pd.to_datetime(self.accounting_df['date']) == pd.to_datetime(date_in)].index[0]
+        accounting_df_subset = self.accounting_df.loc[0:accounting_df_idx, :]
+        
+        available_FIL = np.sum(accounting_df_subset['reward_FIL']) \
+                        - np.sum(accounting_df_subset['onboard_pledge_FIL']) \
+                        - np.sum(accounting_df_subset['renew_pledge_FIL']) \
+                        + np.sum(accounting_df_subset['onboard_scheduled_pledge_release_FIL']) \
+                        + np.sum(accounting_df_subset['renew_scheduled_pledge_release_FIL']) \
+                        + np.sum(accounting_df_subset['capital_inflow_FIL'])
+        return available_FIL

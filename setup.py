@@ -19,6 +19,7 @@ setuptools.setup(
     install_requires=["numpy>=1.23.1", 
                       "pandas>=1.4.3", 
                       "requests>=2.28.1", 
+                      "scikit-learn",
                       "mesa", 
                       "scipy",
                       "numpyro",

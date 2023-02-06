@@ -50,8 +50,7 @@ class GreedyAgent(SPAgent):
     """
 
     def __init__(self, model, id, historical_power, start_date, end_date, 
-                 accounting_df=None, random_seed=1111, agent_optimism=3,
-                 forecast_num_mc=200):
+                 random_seed=1111, agent_optimism=3):
         """
         Args:
             model: the model object
@@ -64,22 +63,19 @@ class GreedyAgent(SPAgent):
             random_seed: the random seed for the agent
             fil_usd_price_optimism_scale: integer between 1 and 5 representing the optimism of the agent, 
                                           1 being most pessimistic and 5 being most optimistic
-            forecast_num_mc: the number of monte carlo simulations to run when forecasting anything in the agent
-                some forecasting happens every time step, so be mindful of this parameter when running simulations
         """
         super().__init__(model, id, historical_power, start_date, end_date)
         
         self.random_seed = random_seed
         self.duration_vec_days = np.asarray([6, 12, 36])*30
         self.agent_optimism = agent_optimism
-        self.forecast_num_mc = forecast_num_mc
+        self.validate()
 
-        self.validate(accounting_df)
         self.map_optimism_scales()
 
         # good for debugging agent actions.  
         # consider paring it down when not debugging for simulation speed
-        self.agent_info_df = copy.copy(accounting_df)
+        self.agent_info_df = pd.DataFrame({'date': pd.date_range(start_date, end_date, freq='D')[:-1]})
         self.agent_info_df['roi_estimate_6mo'] = 0
         self.agent_info_df['roi_estimate_1y'] = 0
         self.agent_info_df['roi_estimate_3y'] = 0
@@ -94,7 +90,6 @@ class GreedyAgent(SPAgent):
         self.agent_info_df['deal_renewed'] = 0
         self.agent_info_df['deal_onboarded_duration'] = 0
         self.agent_info_df['deal_renewed_duration'] = 0
-        self.agent_info_df['USD_used'] = 0
 
     def map_optimism_scales(self):
         self.optimism_to_price_quantile_str = {
@@ -113,35 +108,10 @@ class GreedyAgent(SPAgent):
         }
         
 
-    def validate(self, accounting_df):
-        if accounting_df is None:
-            raise ValueError("The accounting_df must be specified.")
-        # check the length of the usd_df and the bounds of the dates
-        if accounting_df.shape[0] != (self.end_date - self.start_date).days:
-            raise ValueError("The length of the usd_df must be the same as the simulation length.")
-        if pd.to_datetime(accounting_df.iloc[0]['date']) != pd.to_datetime(self.start_date):
-            raise ValueError("The first date in the usd_df must be the same as the start_date.")
-        # if self.accounting_df.iloc[-1]['date'] != self.end_date:
-        #     raise ValueError("The last date in the usd_df must be the same as the end_date.")
-        
-        if 'date' not in accounting_df.columns:
-            raise ValueError("The usd_df must have a date column.")
-        if 'USD' not in accounting_df.columns:
-            raise ValueError("The usd_df must have a USD column.")
-
+    def validate(self):
         assert self.agent_optimism >= 1 and self.agent_optimism <= 5, \
-                "fil_usd_price_optimism_scale must be between 1 and 5"
+                "optimism must be an integer between 1 and 5"
         assert type(self.agent_optimism) == int, "fil_usd_price_optimism_scale must be an integer"
-
-    def get_available_FIL(self, date_in):
-        accounting_df_idx = self.accounting_df[pd.to_datetime(self.accounting_df['date']) == pd.to_datetime(date_in)].index[0]
-        accounting_df_subset = self.accounting_df.loc[0:accounting_df_idx, :]
-        available_FIL = accounting_df_subset['reward_FIL'].cumsum() \
-                        - accounting_df_subset['onboard_pledge_FIL'].cumsum() \
-                        - accounting_df_subset['renew_pledge_FIL'].cumsum() \
-                        + accounting_df_subset['onboard_scheduled_pledge_release_FIL'].cumsum() \
-                        + accounting_df_subset['renew_scheduled_pledge_release_FIL'].cumsum()
-        return available_FIL.values[-1]
 
     def get_max_onboarding_qap_pib(self, date_in):
         available_FIL = self.get_available_FIL(date_in)
@@ -150,7 +120,8 @@ class GreedyAgent(SPAgent):
             pibs_to_onboard = available_FIL / pledge_per_pib
         else:
             pibs_to_onboard = 0
-        
+        if np.isnan(pibs_to_onboard):
+            raise ValueError("Pibs to onboard yielded NAN")
         return pibs_to_onboard
 
     def forecast_day_rewards_per_sector(self, forecast_start_date, forecast_length):
@@ -176,6 +147,9 @@ class GreedyAgent(SPAgent):
         duration_yr = sector_duration / 360.0  
         roi_estimate_annualized = (1.0+roi_estimate)**(1.0/duration_yr) - 1
         
+        # if np.isnan(future_rewards_per_sector_estimate.sum()) or np.isnan(prev_day_pledge_per_QAP) or np.isnan(roi_estimate) or np.isnan(roi_estimate_annualized):
+        #     print(self.unique_id, future_rewards_per_sector_estimate.sum(), prev_day_pledge_per_QAP, roi_estimate, roi_estimate_annualized)
+
         return roi_estimate_annualized
 
     def get_exchange_rate(self, date_in):

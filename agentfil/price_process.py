@@ -118,14 +118,13 @@ class PriceProcess:
                 "price_Q50" : future_price_quantiles[2],
                 "price_Q75" : future_price_quantiles[3],
                 "price_Q95" : future_price_quantiles[4],
-                # currently market-cap and total-volume are not used, in the future this could change
-                # for sophisticated agents
-                "market_caps" : np.random.normal(last_price, 0.5, forecast_length),
+                "market_caps" : np.zeros(forecast_length),
                 "total_volumes" : np.random.normal(last_price, 0.5, forecast_length)
             }
         )
         self.future_price_df['date'] = pd.to_datetime(self.future_price_df['date']).dt.date
         self.usd_fil_exchange_df = pd.concat([self.usd_fil_exchange_df, self.future_price_df], ignore_index=True)
+
 
     def _update_model_global_forecasts(self):
         global_forecast_df_start_idx = self.model.global_forecast_df[self.model.global_forecast_df['date'] == self.usd_fil_exchange_df.iloc[0]['date']].index[0]
@@ -135,6 +134,8 @@ class PriceProcess:
         self.model.global_forecast_df.loc[global_forecast_df_start_idx:global_forecast_df_end_idx, 'price_Q50'] = self.usd_fil_exchange_df['price_Q50'].values
         self.model.global_forecast_df.loc[global_forecast_df_start_idx:global_forecast_df_end_idx, 'price_Q75'] = self.usd_fil_exchange_df['price_Q75'].values
         self.model.global_forecast_df.loc[global_forecast_df_start_idx:global_forecast_df_end_idx, 'price_Q95'] = self.usd_fil_exchange_df['price_Q95'].values
+
+        self.model.global_forecast_df.loc[global_forecast_df_start_idx:global_forecast_df_end_idx, 'market_caps'] = self.usd_fil_exchange_df['market_caps'].values
 
     def step(self):
         # nothing to do b/c all predictions are made upfront
