@@ -200,7 +200,6 @@ class GreedyAgent(SPAgent):
             # self.agent_info_df.loc[agent_df_idx, 'deal_onboarded_duration'] = best_duration
             ##########################################################################################
 
-        # update when the onboarded power is scheduled to expire
         super().step()
 
     def post_global_step(self):

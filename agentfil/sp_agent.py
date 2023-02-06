@@ -83,7 +83,7 @@ class SPAgent(mesa.Agent):
             power_fn = cc_power
             debug_power_key = 'cc_onboarded'
             debug_duration_key = 'cc_onboarded_duration'
-        elif power_type.lower()=='deal':
+        elif power_type.lower()=='deal' or power_type.lower()=='qa':
             power_idx = 1
             power_fn = deal_power
             debug_power_key = 'deal_onboarded'

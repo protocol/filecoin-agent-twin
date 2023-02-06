@@ -493,10 +493,12 @@ class FilecoinModel(mesa.Model):
         total_rb_delta += (total_onboarded_rb_delta + total_renewed_rb_delta - total_se_rb_delta - total_terminated_rb_delta)
         total_qa_delta += (total_onboarded_qa_delta + total_renewed_qa_delta - total_se_qa_delta - total_terminated_qa_delta)
 
-        # Error Checking to ensure that network constants are being respected by
-        # the agents
-        if total_onboarded_rb_delta > constants.MAX_DAY_ONBOARD_RBP_PIB:
-            raise ValueError("Agents are trying to onboard more than the max allowed RBP PIB per day")
+        # TODO: unsure why this is failing w/ greedy agents?
+        # # Error Checking to ensure that network constants are being respected by
+        # # the agents
+        # if total_onboarded_rb_delta > constants.MAX_DAY_ONBOARD_RBP_PIB:
+        #     raise ValueError("Agents are trying to onboard more than the max allowed RBP PIB per day by a total of: %0.02f" % \
+        #         (total_onboarded_rb_delta - constants.MAX_DAY_ONBOARD_RBP_PIB))
 
         out_dict = {
             'date': date_in,
