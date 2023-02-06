@@ -42,6 +42,16 @@ class SPAgent(mesa.Agent):
         self.accounting_df['renew_scheduled_pledge_release_FIL'] = 0
         self.accounting_df['capital_inflow_FIL'] = 0
 
+        self.agent_info_df = pd.DataFrame({'date': pd.date_range(start_date, end_date, freq='D')[:-1]})
+        self.agent_info_df['cc_onboarded'] = 0
+        self.agent_info_df['cc_renewed'] = 0
+        self.agent_info_df['cc_onboarded_duration'] = 0
+        self.agent_info_df['cc_renewed_duration'] = 0
+        self.agent_info_df['deal_onboarded'] = 0
+        self.agent_info_df['deal_renewed'] = 0
+        self.agent_info_df['deal_onboarded_duration'] = 0
+        self.agent_info_df['deal_renewed_duration'] = 0
+
         self.allocate_historical_power(agent_seed)
 
     def step(self):
@@ -168,3 +178,14 @@ class SPAgent(mesa.Agent):
                         + np.sum(accounting_df_subset['renew_scheduled_pledge_release_FIL']) \
                         + np.sum(accounting_df_subset['capital_inflow_FIL'])
         return available_FIL
+
+    def get_max_onboarding_qap_pib(self, date_in):
+        available_FIL = self.get_available_FIL(date_in)
+        if available_FIL > 0:
+            pledge_per_pib = self.model.estimate_pledge_for_qa_power(date_in, 1.0)
+            pibs_to_onboard = available_FIL / pledge_per_pib
+        else:
+            pibs_to_onboard = 0
+        if np.isnan(pibs_to_onboard):
+            raise ValueError("Pibs to onboard yielded NAN")
+        return pibs_to_onboard

@@ -73,23 +73,14 @@ class GreedyAgent(SPAgent):
 
         self.map_optimism_scales()
 
-        # good for debugging agent actions.  
-        # consider paring it down when not debugging for simulation speed
-        self.agent_info_df = pd.DataFrame({'date': pd.date_range(start_date, end_date, freq='D')[:-1]})
+        # additional items to track for the greedy agent
         self.agent_info_df['roi_estimate_6mo'] = 0
         self.agent_info_df['roi_estimate_1y'] = 0
         self.agent_info_df['roi_estimate_3y'] = 0
         self.agent_info_df['profit_duration_6mo'] = 0
         self.agent_info_df['profit_duration_1y'] = 0
         self.agent_info_df['profit_duration_3y'] = 0
-        self.agent_info_df['cc_onboarded'] = 0
-        self.agent_info_df['cc_renewed'] = 0
-        self.agent_info_df['cc_onboarded_duration'] = 0
-        self.agent_info_df['cc_renewed_duration'] = 0
-        self.agent_info_df['deal_onboarded'] = 0
-        self.agent_info_df['deal_renewed'] = 0
-        self.agent_info_df['deal_onboarded_duration'] = 0
-        self.agent_info_df['deal_renewed_duration'] = 0
+        
 
     def map_optimism_scales(self):
         self.optimism_to_price_quantile_str = {
@@ -112,17 +103,6 @@ class GreedyAgent(SPAgent):
         assert self.agent_optimism >= 1 and self.agent_optimism <= 5, \
                 "optimism must be an integer between 1 and 5"
         assert type(self.agent_optimism) == int, "fil_usd_price_optimism_scale must be an integer"
-
-    def get_max_onboarding_qap_pib(self, date_in):
-        available_FIL = self.get_available_FIL(date_in)
-        if available_FIL > 0:
-            pledge_per_pib = self.model.estimate_pledge_for_qa_power(date_in, 1.0)
-            pibs_to_onboard = available_FIL / pledge_per_pib
-        else:
-            pibs_to_onboard = 0
-        if np.isnan(pibs_to_onboard):
-            raise ValueError("Pibs to onboard yielded NAN")
-        return pibs_to_onboard
 
     def forecast_day_rewards_per_sector(self, forecast_start_date, forecast_length):
         k = 'day_rewards_per_sector_forecast_' + self.optimism_to_dayrewardspersector_quantile_str[self.agent_optimism]
