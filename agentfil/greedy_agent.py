@@ -180,16 +180,25 @@ class GreedyAgent(SPAgent):
             rb_to_onboard = min(max_possible_qa_power/constants.FIL_PLUS_MULTIPLER, self.model.MAX_DAY_ONBOARD_RBP_PIB_PER_AGENT)
             qa_to_onboard = apply_qa_multiplier(rb_to_onboard)
 
-            self.onboarded_power[self.current_day][0] += cc_power(rb_to_onboard, best_duration)
-            self.onboarded_power[self.current_day][1] += deal_power(qa_to_onboard, best_duration)
-
             # TODO: update to: put as much as possible into deal-power, and the remainder into CC power (renew first)
+            self.onboard_power(self.current_date, rb_to_onboard, 'cc', best_duration)
+            self.onboard_power(self.current_date, qa_to_onboard, 'deal', best_duration)
 
-            # bookkeeping to track/debug agents
-            self.agent_info_df.loc[agent_df_idx, 'cc_onboarded'] = rb_to_onboard
-            self.agent_info_df.loc[agent_df_idx, 'cc_onboarded_duration'] = best_duration
-            self.agent_info_df.loc[agent_df_idx, 'deal_onboarded'] = qa_to_onboard
-            self.agent_info_df.loc[agent_df_idx, 'deal_onboarded_duration'] = best_duration
+            ##########################################################################################
+            ## This functionality is moved into the onboard_power function so that all agents can use it generally
+            ## Safe to delete the code in the block below when you are confident that things are working
+            ## as they should be. Initial testing on 2/6/23 indicates to me that things ARE PROPERLY
+            ## working as expected.  I am leaving this in for now to easily revert in case something is noticed.
+            ##########################################################################################
+            # self.onboarded_power[self.current_day][0] += cc_power(rb_to_onboard, best_duration)
+            # self.onboarded_power[self.current_day][1] += deal_power(qa_to_onboard, best_duration)
+
+            # # bookkeeping to track/debug agents
+            # self.agent_info_df.loc[agent_df_idx, 'cc_onboarded'] = rb_to_onboard
+            # self.agent_info_df.loc[agent_df_idx, 'cc_onboarded_duration'] = best_duration
+            # self.agent_info_df.loc[agent_df_idx, 'deal_onboarded'] = qa_to_onboard
+            # self.agent_info_df.loc[agent_df_idx, 'deal_onboarded_duration'] = best_duration
+            ##########################################################################################
 
         # update when the onboarded power is scheduled to expire
         super().step()
