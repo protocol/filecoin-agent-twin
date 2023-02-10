@@ -146,6 +146,8 @@ class CapitalInflowProcess:
             return self.setpoint_neg_pos
         elif mkt_cap_grad < 0 and qap_grad < 0:
             return self.setpoint_neg_neg
+        else:
+            return None
 
     def step(self):
         # get the data to predict mkt-cap
@@ -168,7 +170,8 @@ class CapitalInflowProcess:
         qap_grad = self.model.filecoin_df.loc[filecoin_df_idx, 'total_qa_power_eib'] - self.model.filecoin_df.loc[filecoin_df_idx-1, 'total_qa_power_eib']
 
         setpoint = self.determine_setpoint(mkt_cap_grad, qap_grad)
-        self.pid_controller.change_setpoint(setpoint)
+        if setpoint is not None:
+            self.pid_controller.change_setpoint(setpoint)
         
         infil_pct = self.pid_controller.step(self.model.filecoin_df.loc[filecoin_df_idx-1, 'capital_inflow_pct'])
 

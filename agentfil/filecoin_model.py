@@ -4,6 +4,8 @@ import numpy as np
 from scipy.optimize import fsolve
 from datetime import timedelta
 import math
+import os
+import dill
 
 from mechafil import data, vesting, minting, supply, locking
 
@@ -758,3 +760,14 @@ class FilecoinModel(mesa.Model):
                 agent.accounting_df.loc[accounting_df_idx, 'capital_inflow_FIL'] += FIL_to_agent
 
             agent.post_global_step()
+
+    def save_data(self, output_dir):
+        self.filecoin_df.to_csv(os.path.join(output_dir, 'filecoin_df.csv'))
+        for agent_info in self.agents:
+            agent = agent_info['agent']
+            agent.save_data(output_dir)
+
+        # # TODO: is this necessary?
+        # output_fp = os.path.join(output_dir, 'simulation.pkl')
+        # dill.dump(self, output_fp)
+
