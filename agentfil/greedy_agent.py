@@ -4,7 +4,6 @@ from .sp_agent import SPAgent
 from .power import cc_power, deal_power
 from .filecoin_model import apply_qa_multiplier
 
-import copy
 import numpy as np
 import pandas as pd
 
@@ -31,7 +30,6 @@ class GreedyAgent(SPAgent):
             - roi = (np.sum(x)/pledge_per_sector)
             - duration_yrs = d/360
             - roi_annualized = (1+roi)^(1/duration_yrs) - 1
-        - Estimate fees for onboarding power
         - Estimate future USD/FIL exchange rate at time t+d
         - profit_metric = (1+roi_annualized)*exchange_rate[t+d] - exchange_rate[t]
         - profitability_vec.append(profit_metric)
@@ -43,9 +41,9 @@ class GreedyAgent(SPAgent):
         - [ ] If still further remaining FIL, onboard CC power
 
     TODO:
-    [ ] - Iterative estimation of block rewards / day
+    [X] - Iterative estimation of block rewards / day
     [ ] - How to model external macro-environmental factors (interest rates, etc.) in order to
-          determine if agent should borrow money to onboard more power than it has reserves for?
+          determine if agent should borrow FIL to onboard more power than it has reserves for?
 
     """
 
@@ -102,7 +100,7 @@ class GreedyAgent(SPAgent):
     def validate(self):
         assert self.agent_optimism >= 1 and self.agent_optimism <= 5, \
                 "optimism must be an integer between 1 and 5"
-        assert type(self.agent_optimism) == int, "fil_usd_price_optimism_scale must be an integer"
+        assert type(self.agent_optimism) == int, "agent_optimism must be an integer"
 
     def forecast_day_rewards_per_sector(self, forecast_start_date, forecast_length):
         k = 'day_rewards_per_sector_forecast_' + self.optimism_to_dayrewardspersector_quantile_str[self.agent_optimism]
