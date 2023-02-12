@@ -1,7 +1,7 @@
 import mesa
 import pandas as pd
 import numpy as np
-from scipy.optimize import fsolve
+from scipy.optimize import root
 from datetime import timedelta
 import math
 import os
@@ -16,15 +16,32 @@ from . import price_process
 from . import capital_inflow_process
 
 
-def solve_geometric(a, n):
+def solve_geometric(a, n, init_guess=0.5):
     # see: https://math.stackexchange.com/a/2174287
     def f(r, a, n):
         # the geometric series 
         return a*(np.power(r,n)-1)/(r-1) - 1
+    soln = root(f, init_guess, args=(a, n), method='lm')  # this method seems more reliable ...
+    return soln
+    
+def double_check_soln(a, r, n):
+    sum_val = a*(r**n-1)/(r-1)
+    return 1-sum_val
+
+def root_finder(a, n, ntry=5):
+    try_idx = 0
     init_guess = 0.5
-    soln = fsolve(f, init_guess, args=(a, n))
-    r = soln[0]
-    return r
+    while try_idx < ntry:
+        soln = solve_geometric(a, n, init_guess)
+        if soln.success:
+            r = soln.x
+            delta = double_check_soln(a, r, n)
+            if np.isclose(delta, 0):
+                return soln.x[0]
+            else:
+                init_guess += delta/2
+        try_idx += 1
+    raise ValueError("Unable to find a solution!")
 
 def distribute_agent_power_geometric_series(num_agents, a=0.2):
     # use a geometric-series to determine the proportion of power that goes
@@ -32,7 +49,7 @@ def distribute_agent_power_geometric_series(num_agents, a=0.2):
     if num_agents == 1:
         return [1.0]
     
-    r = solve_geometric(a, num_agents)
+    r = root_finder(a, num_agents)
 
     agent_power_distributions = []
     for i in range(num_agents):
