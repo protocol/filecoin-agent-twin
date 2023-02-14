@@ -6,20 +6,24 @@ import importlib
 from datetime import datetime, timedelta
 from tqdm.auto import tqdm
 
+from agentfil import constants
 from agentfil.cfg import experiments
 from agentfil.filecoin_model import FilecoinModel
 
-def run_experiment(experiment_name, experiment_output_dir, start_date, end_date, verbose=False):
+def run_experiment(experiment_name, experiment_output_dir, start_date, end_date, 
+                   verbose=False):
     os.makedirs(experiment_output_dir, exist_ok=True)
 
     experiment = experiments.name2experiment[experiment_name]
     module_name = experiment['module_name']
     class_name = experiment['instantiator']
     kwargs = experiment['instantiator_kwargs']
+    filecoin_model_kwargs = experiment['filecoin_model_kwargs']
     module = importlib.import_module(module_name)
     experiment_obj = getattr(module, class_name)(**kwargs)
 
     agent_types, agent_kwargs_vec, agent_power_distributions = experiment_obj.get_agent_cfg()
+    
     num_agents = len(agent_types)
     minting_process_kwargs = experiment_obj.get_minting_process_cfg()
     price_process_kwargs = experiment_obj.get_price_process_cfg()
@@ -28,11 +32,13 @@ def run_experiment(experiment_name, experiment_output_dir, start_date, end_date,
     forecast_length = (end_date - start_date).days
 
     filecoin_model = FilecoinModel(num_agents, start_date, end_date, 
-                                   agent_types, agent_kwargs_vec, agent_power_distributions=agent_power_distributions,
+                                   agent_types=agent_types, agent_kwargs_list=agent_kwargs_vec, 
+                                   agent_power_distributions=agent_power_distributions,
                                    compute_cs_from_networkdatastart=True, use_historical_gas=False,
                                    price_process_kwargs=price_process_kwargs,
                                    minting_process_kwargs=minting_process_kwargs,
-                                   capital_inflow_process_kwargs=capital_inflow_process_kwargs)
+                                   capital_inflow_process_kwargs=capital_inflow_process_kwargs,
+                                   **filecoin_model_kwargs)
     for _ in tqdm(range(forecast_length), disable=not verbose):
         filecoin_model.step()
 

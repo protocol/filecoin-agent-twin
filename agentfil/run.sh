@@ -21,7 +21,11 @@ fi
 declare -a experiment_names
 let i=0
 while IFS=$'\n' read -r line_data; do
-    experiment_names[i]="${line_data}"
+    l="${line_data}"
+    if [[ ${l::1} == "#" || "$l" == "" ]]; then
+        continue
+    fi
+    experiment_names[i]="$l"
     ((++i))
 done < $run_file
 
@@ -39,10 +43,10 @@ experiment_runner() {
     mkdir -p $output_dir
     
     python3 run_experiment.py \
-        --start-date $start_date \
-        --end-date $end_date \
         --experiment-name $name \
-        --output-dir $output_dir
+        --output-dir $output_dir \
+        --start-date $start_date \
+        --end-date $end_date
 }
 export start_date end_date experiment_names experiment_output_dirs
 export -f experiment_runner 
