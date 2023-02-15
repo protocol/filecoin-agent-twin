@@ -17,10 +17,13 @@ def power_proportional_capital_distribution_policy(miner_qa_power=0, total_qa_po
 
 
 class PID:
-    def __init__(self, p=0.1, i=0.1, d=0.1, setpoint=0.5):
+    def __init__(self, p=0.1, i=0.1, d=0.1, setpoint=0.5,
+                 clip_low=0, clip_high=1):
         self.p = p
         self.i = i
         self.d = d
+        self.clip_low = clip_low
+        self.clip_high = clip_high
         
         self.setpoint = setpoint
         
@@ -39,6 +42,7 @@ class PID:
         d_err = err - self.last_err
         
         output = v + (err * self.p) + (self.i * self.err_sum) + (self.d * d_err)
+        output = np.clip(output, self.clip_low, self.clip_high)
         self.last_err = err
         return output
 
@@ -95,12 +99,16 @@ class CapitalInflowProcess:
             setpoint_pos_neg = 0.005
             setpoint_neg_pos = 0.0025
             setpoint_neg_neg = 0
-        self.pid_controller = PID(p, i, d)  # values were found with trial and error
         self.setpoint_pos_pos = setpoint_pos_pos
         self.setpoint_pos_neg = setpoint_pos_neg
         self.setpoint_neg_pos = setpoint_neg_pos
         self.setpoint_neg_neg = setpoint_neg_neg
 
+        # PID values were found with trial and error
+        clip_low = min(setpoint_neg_neg, setpoint_neg_pos, setpoint_pos_neg, setpoint_pos_pos)
+        clip_high = max(setpoint_neg_neg, setpoint_neg_pos, setpoint_pos_neg, setpoint_pos_pos)
+        self.pid_controller = PID(p, i, d, clip_low=clip_low, clip_high=clip_high)
+        
         self.prepare_train_data()
         self.train_mkt_cap_model()
     
@@ -146,6 +154,8 @@ class CapitalInflowProcess:
             return self.setpoint_neg_pos
         elif mkt_cap_grad < 0 and qap_grad < 0:
             return self.setpoint_neg_neg
+        else:
+            return None
 
     def step(self):
         # get the data to predict mkt-cap
@@ -168,7 +178,8 @@ class CapitalInflowProcess:
         qap_grad = self.model.filecoin_df.loc[filecoin_df_idx, 'total_qa_power_eib'] - self.model.filecoin_df.loc[filecoin_df_idx-1, 'total_qa_power_eib']
 
         setpoint = self.determine_setpoint(mkt_cap_grad, qap_grad)
-        self.pid_controller.change_setpoint(setpoint)
+        if setpoint is not None:
+            self.pid_controller.change_setpoint(setpoint)
         
         infil_pct = self.pid_controller.step(self.model.filecoin_df.loc[filecoin_df_idx-1, 'capital_inflow_pct'])
 

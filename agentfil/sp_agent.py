@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 import numpy as np
 from numpy.random import default_rng
 import pandas as pd
+import os
 
 from . import constants
 from .power import cc_power, deal_power
@@ -224,3 +225,10 @@ class SPAgent(mesa.Agent):
         if np.isnan(pibs_to_onboard):
             raise ValueError("Pibs to onboard yielded NAN")
         return pibs_to_onboard
+
+    def save_data(self, output_dir):
+        accounting_fp = os.path.join(output_dir, 'agent_%d_accounting_info.csv' % (self.unique_id,))
+        self.accounting_df.to_csv(accounting_fp, index=False)
+
+        agent_info_fp = os.path.join(output_dir, 'agent_%d_agent_info.csv' % (self.unique_id,))
+        self.agent_info_df.to_csv(agent_info_fp, index=False)
