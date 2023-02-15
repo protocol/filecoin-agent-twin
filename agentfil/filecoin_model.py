@@ -106,6 +106,10 @@ class FilecoinModel(mesa.Model):
         self.num_agents = n
         self.max_day_onboard_rbp_pib = max_day_onboard_rbp_pib
         self.MAX_DAY_ONBOARD_RBP_PIB_PER_AGENT = self.max_day_onboard_rbp_pib / n
+        self.MIN_DAY_ONBOARD_RBP_PIB_PER_AGENT = constants.MIN_SECTORS_ONBOARD * constants.SECTOR_SIZE / constants.PIB
+        # ensure that min/max values don't clash w/ the # of agents
+        assert self.num_agents * self.MIN_DAY_ONBOARD_RBP_PIB_PER_AGENT <= self.max_day_onboard_rbp_pib, \
+            "max_day_onboard_rbp_pib is too small for the number of agents"
         
         # TODO: I think these should become configuration objects, this is getting a bit wary ... 
         self.price_process_kwargs = price_process_kwargs

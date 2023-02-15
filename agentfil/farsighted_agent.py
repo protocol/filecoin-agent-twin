@@ -34,7 +34,7 @@ class FarSightedAgent(SPAgent):
         super().__init__(model, id, historical_power, start_date, end_date)
 
         self.random_seed = random_seed
-        self.duration_vec_days = np.asarray([12, 36])*30
+        self.duration_vec_days = (np.asarray([12, 36])*30).astype(np.int32)
         self.agent_optimism = agent_optimism
         self.far_sightedness_days = far_sightedness_days
         self.reestimate_every_days = reestimate_every_days
@@ -46,10 +46,9 @@ class FarSightedAgent(SPAgent):
         self.map_optimism_scales()
 
         # this data-frame tracks the ROI estimates the agent is making 
-        self.agent_info_df['roi_estimate_360'] = 0.
-        self.agent_info_df['roi_estimate_1080'] = 0.
-        self.agent_info_df['profit_metric_360'] = 0.
-        self.agent_info_df['profit_metric_1080'] = 0.
+        for d in self.duration_vec_days:
+            self.agent_info_df[f'roi_estimate_{d}'] = 0
+            self.agent_info_df[f'profit_metric_{d}'] = 0
         self.agent_info_df['scheduled_qa_power_pib'] = 0.
         self.agent_info_df['scheduled_rb_power_pib'] = 0.
         self.agent_info_df['scheduled_power_duration'] = 0.
@@ -137,9 +136,9 @@ class FarSightedAgent(SPAgent):
                     profit_metric = (1+roi_estimate)*future_exchange_rate - current_exchange_rate
                     
                     self.agent_info_df.loc[pd.to_datetime(self.agent_info_df['date']) == pd.to_datetime(estimation_day), 
-                                           'roi_estimate_' + str(sector_duration)] = float(roi_estimate)
+                                           'roi_estimate_%d' % (sector_duration,)] = float(roi_estimate)
                     self.agent_info_df.loc[pd.to_datetime(self.agent_info_df['date']) == pd.to_datetime(estimation_day), 
-                                           'profit_metric_' + str(sector_duration)] = float(profit_metric)
+                                           'profit_metric_%d' % (sector_duration,)] = float(profit_metric)
 
                 estimation_day += timedelta(days=1)
 
@@ -171,7 +170,6 @@ class FarSightedAgent(SPAgent):
         rb_to_onboard = self.agent_info_df.loc[agent_info_df_idx, 'scheduled_rb_power_pib']
         duration = self.agent_info_df.loc[agent_info_df_idx, 'scheduled_power_duration']
 
-        self.onboard_power(self.current_date, rb_to_onboard, 'cc', duration)
-        self.onboard_power(self.current_date, qa_to_onboard, 'deal', duration)
+        self.onboard_power(self.current_date, rb_to_onboard, qa_to_onboard, duration)
 
         super().step()

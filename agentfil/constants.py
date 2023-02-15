@@ -15,6 +15,7 @@ MIN_VALUE=1e-6
 # but I'm not sure. If all of this is FIL+, this would mean that the maximum onboardable
 # power per day is 75 * 10 = 750 PiB QAP, which seems super high.
 DEFAULT_MAX_DAY_ONBOARD_RBP_PIB=75  # this is close to the historical max
+MIN_SECTORS_ONBOARD=1
 
 FIL_PLUS_MULTIPLER=10
 
