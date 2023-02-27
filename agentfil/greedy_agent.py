@@ -22,7 +22,7 @@ class GreedyAgent(SPAgent):
 
     Agent Logic/Behavior
     --------------------
-    duration_vec_days = [6, 12, 36]*30
+    duration_vec_days = [12, 36]*30
     profitability_vec = []
     for d in duration_vec_days:
         - Estimate ROI
@@ -65,19 +65,16 @@ class GreedyAgent(SPAgent):
         super().__init__(model, id, historical_power, start_date, end_date)
         
         self.random_seed = random_seed
-        self.duration_vec_days = np.asarray([6, 12, 36])*30
+        self.duration_vec_days = (np.asarray([12, 36])*30).astype(np.int32)
         self.agent_optimism = agent_optimism
         self.validate()
 
         self.map_optimism_scales()
 
         # additional items to track for the greedy agent
-        self.agent_info_df['roi_estimate_6mo'] = 0
-        self.agent_info_df['roi_estimate_1y'] = 0
-        self.agent_info_df['roi_estimate_3y'] = 0
-        self.agent_info_df['profit_duration_6mo'] = 0
-        self.agent_info_df['profit_duration_1y'] = 0
-        self.agent_info_df['profit_duration_3y'] = 0
+        for d in self.duration_vec_days:
+            self.agent_info_df[f'roi_estimate_{d}'] = 0
+            self.agent_info_df[f'profit_metric_{d}'] = 0
         
 
     def map_optimism_scales(self):
@@ -144,6 +141,7 @@ class GreedyAgent(SPAgent):
         roi_estimate_vec = []
         profitability_vec = []
 
+        agent_df_idx = self.agent_info_df[pd.to_datetime(self.agent_info_df['date']) == pd.to_datetime(self.current_date)].index[0]
         current_exchange_rate = self.get_exchange_rate(self.current_date)
         for d in self.duration_vec_days:    
             roi_estimate = self.estimate_roi(d, self.current_date)
@@ -156,15 +154,10 @@ class GreedyAgent(SPAgent):
             
             roi_estimate_vec.append(roi_estimate)
             profitability_vec.append(profit_metric)
-        
-        agent_df_idx = self.agent_info_df[pd.to_datetime(self.agent_info_df['date']) == pd.to_datetime(self.current_date)].index[0]
-        self.agent_info_df.loc[agent_df_idx, 'roi_estimate_6mo'] = roi_estimate_vec[0]
-        self.agent_info_df.loc[agent_df_idx, 'roi_estimate_1y'] = roi_estimate_vec[1]
-        self.agent_info_df.loc[agent_df_idx, 'roi_estimate_3y'] = roi_estimate_vec[2]
-        self.agent_info_df.loc[agent_df_idx, 'profit_duration_6mo'] = profitability_vec[0]
-        self.agent_info_df.loc[agent_df_idx, 'profit_duration_1y'] = profitability_vec[1]
-        self.agent_info_df.loc[agent_df_idx, 'profit_duration_3y'] = profitability_vec[2]
 
+            self.agent_info_df.loc[agent_df_idx, 'roi_estimate_%d' % (d,)] = roi_estimate
+            self.agent_info_df.loc[agent_df_idx, 'profit_metric_%d' % (d,)] = profit_metric
+        
         max_profit_idx = np.argmax(profitability_vec)
         best_duration = self.duration_vec_days[max_profit_idx]
         if profitability_vec[max_profit_idx] > 0: 
@@ -179,24 +172,7 @@ class GreedyAgent(SPAgent):
             qa_to_onboard = apply_qa_multiplier(rb_to_onboard)
 
             # TODO: update to: put as much as possible into deal-power, and the remainder into CC power (renew first)
-            self.onboard_power(self.current_date, rb_to_onboard, 'cc', best_duration)
-            self.onboard_power(self.current_date, qa_to_onboard, 'deal', best_duration)
-
-            ##########################################################################################
-            ## This functionality is moved into the onboard_power function so that all agents can use it generally
-            ## Safe to delete the code in the block below when you are confident that things are working
-            ## as they should be. Initial testing on 2/6/23 indicates to me that things ARE PROPERLY
-            ## working as expected.  I am leaving this in for now to easily revert in case something is noticed.
-            ##########################################################################################
-            # self.onboarded_power[self.current_day][0] += cc_power(rb_to_onboard, best_duration)
-            # self.onboarded_power[self.current_day][1] += deal_power(qa_to_onboard, best_duration)
-
-            # # bookkeeping to track/debug agents
-            # self.agent_info_df.loc[agent_df_idx, 'cc_onboarded'] = rb_to_onboard
-            # self.agent_info_df.loc[agent_df_idx, 'cc_onboarded_duration'] = best_duration
-            # self.agent_info_df.loc[agent_df_idx, 'deal_onboarded'] = qa_to_onboard
-            # self.agent_info_df.loc[agent_df_idx, 'deal_onboarded_duration'] = best_duration
-            ##########################################################################################
+            self.onboard_power(self.current_date, rb_to_onboard, qa_to_onboard, best_duration)
 
         super().step()
 

@@ -36,7 +36,6 @@ class DCAAgent(SPAgent):
         qa_to_onboard = min(qa_to_onboard, self.max_daily_onboard_qap_pib)
         rb_to_onboard = qa_to_onboard/constants.FIL_PLUS_MULTIPLER
 
-        self.onboard_power(self.current_date, rb_to_onboard, 'cc', self.sector_duration)
-        self.onboard_power(self.current_date, qa_to_onboard, 'deal', self.sector_duration)
+        self.onboard_power(self.current_date, rb_to_onboard, qa_to_onboard, self.sector_duration)
 
         super().step()
