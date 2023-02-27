@@ -10,7 +10,8 @@ from agentfil import constants
 from agentfil.cfg import experiments
 from agentfil.filecoin_model import FilecoinModel
 
-def run_experiment(experiment_name, experiment_output_dir, start_date, end_date, 
+def run_experiment(auth_config, experiment_name, experiment_output_dir, 
+                   start_date, end_date, 
                    verbose=False):
     os.makedirs(experiment_output_dir, exist_ok=True)
 
@@ -32,6 +33,7 @@ def run_experiment(experiment_name, experiment_output_dir, start_date, end_date,
     forecast_length = (end_date - start_date).days
 
     filecoin_model = FilecoinModel(num_agents, start_date, end_date, 
+                                   spacescope_cfg=auth_config,
                                    agent_types=agent_types, agent_kwargs_list=agent_kwargs_vec, 
                                    agent_power_distributions=agent_power_distributions,
                                    compute_cs_from_networkdatastart=True, use_historical_gas=False,
@@ -48,6 +50,7 @@ def run_experiment(experiment_name, experiment_output_dir, start_date, end_date,
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('--auth-config', type=str, required=True)
     parser.add_argument('--experiment-name', type=str, default='default')
     parser.add_argument('--output-dir', type=str, default='output')
     parser.add_argument('--start-date', type=str, default='today')
@@ -57,6 +60,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.experiment_name not in experiments.name2experiment:
         raise ValueError('Experiment name not found: {}'.format(args.experiment_name))
+    
     if args.start_date == 'today':
         start_date = datetime.today().date() - timedelta(days=1)
     else:
@@ -67,4 +71,5 @@ if __name__ == '__main__':
     else:
         end_date = datetime.strptime(args.end_date, '%Y-%m-%d').date()
 
-    run_experiment(args.experiment_name, args.output_dir, start_date, end_date, args.verbose)
+    run_experiment(args.auth_config, args.experiment_name, args.output_dir, 
+                   start_date, end_date, args.verbose)

@@ -5,9 +5,10 @@
 . `which env_parallel.bash`
 
 run_file=${1:-"None"}  # input filename which contains experiment configs to run
-num_jobs=${2:-4}
-start_date=${3:-"2023-02-01"}
-end_date=${4:-"2026-02-01"}
+auth_config=${2:-"None"} # JSON file containing bearer token for data downloads
+num_jobs=${3:-4}
+start_date=${4:-"2023-02-01"}
+end_date=${5:-"2026-02-01"}
 OVERWRITE_EXISTING=${5:-0} # if 1, reruns experiments even if output already exists
                            # if 0, skips experiments if output already exists
 root_output_dir=${6:-"$HOME/agentfil/exp"}
@@ -43,6 +44,7 @@ experiment_runner() {
     mkdir -p $output_dir
     
     python3 run_experiment.py \
+        --auth-config $auth_config \
         --experiment-name $name \
         --output-dir $output_dir \
         --start-date $start_date \
