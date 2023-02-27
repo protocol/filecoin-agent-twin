@@ -69,15 +69,18 @@ def apply_qa_multiplier(power_in,
 
 
 class FilecoinModel(mesa.Model):
-    def __init__(self, n, start_date, end_date, max_day_onboard_rbp_pib=constants.DEFAULT_MAX_DAY_ONBOARD_RBP_PIB,
+    def __init__(self, n, start_date, end_date, spacescope_cfg=None,
+                 max_day_onboard_rbp_pib=constants.DEFAULT_MAX_DAY_ONBOARD_RBP_PIB,
                  agent_types=None, agent_kwargs_list=None, agent_power_distributions=None,
                  compute_cs_from_networkdatastart=True, use_historical_gas=False,
                  price_process_kwargs=None, minting_process_kwargs=None, capital_inflow_process_kwargs=None,
                  capital_inflow_distribution_policy=None, capital_inflow_distribution_policy_kwargs=None,
                  random_seed=1234):
         """
+        n: the number of agents to instantiate
         start_date: the start date of the simulation
         end_date: the end date of the simulation
+        spacescope_cfg: a dictionary of configuration parameters for the spacescope model
         max_day_onboard_rbp_pib: the maximum amount of power that can be onboarded per day, in PiB
         agent_types: a vector of the types of agents to instantiate, if None then the 
                      default is to instantiate all agents as SPAgent
@@ -103,6 +106,10 @@ class FilecoinModel(mesa.Model):
         capital_inflow_distribution_policy: a function that determines the percentage of total capital inflow that is allocated to a given miner
         capital_inflow_distribution_policy_kwargs: a dictionary of keyword arguments to pass to the capital inflow distribution policy
         """
+        if spacescope_cfg is None:
+            raise ValueError("spacescope_cfg must be specified")
+        data.setup_spacescope(spacescope_cfg)
+
         self.num_agents = n
         self.max_day_onboard_rbp_pib = max_day_onboard_rbp_pib
         self.MAX_DAY_ONBOARD_RBP_PIB_PER_AGENT = self.max_day_onboard_rbp_pib / n
