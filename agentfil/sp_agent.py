@@ -107,41 +107,22 @@ class SPAgent(mesa.Agent):
         self.agent_info_df.loc[agent_df_idx, 'deal_onboarded_duration'] = duration_days 
 
         return 0
+    
+    def renew_power(self, date_in, cc_power_in_pib, duration_days):
+        day_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(date_in)].index[0]
+        self.renewed_power[day_idx][0] += cc_power(cc_power_in_pib, duration_days)
+        
+        agent_df_idx = self.agent_info_df[pd.to_datetime(self.agent_info_df['date']) == pd.to_datetime(date_in)].index[0]
+        self.agent_info_df.loc[agent_df_idx, 'cc_renewed'] += cc_power_in_pib
+        self.agent_info_df.loc[agent_df_idx, 'cc_renewed_duration'] = duration_days
 
-    # def onboard_power(self, date_in, power_in_pib, power_type, duration_days):
-    #     """
-    #     A convenience function which onboards the specified amount of power for a given date
-    #     and updates other necessary internal variables to keep the agent in sync
-
-    #     NOTE: while the date_in argument makes this function general, it is intended to use
-    #     the current date of the agent. An assessment as to how using this function with
-    #     dates not in sequential order synced to the current date affects the network statistics
-    #     has not yet been conducted!
-    #     """
-    #     if power_type.lower()=='cc':
-    #         power_idx = 0
-    #         power_fn = cc_power
-    #         debug_power_key = 'cc_onboarded'
-    #         debug_duration_key = 'cc_onboarded_duration'
-    #     elif power_type.lower()=='deal' or power_type.lower()=='qa':
-    #         power_idx = 1
-    #         power_fn = deal_power
-    #         debug_power_key = 'deal_onboarded'
-    #         debug_duration_key = 'deal_onboarded_duration'
-    #     else:
-    #         raise ValueError('power must be either cc_power or deal_power')
-
-    #     # convert the date to the index of the day in the simulation
-    #       # using filecoin_df to find the index works because the vectors self.onboarded_power, self.t, and self.model.filecoin_df are all aligned
-    #     day_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(date_in)].index[0]
-    #     self.onboarded_power[day_idx][power_idx] += power_fn(power_in_pib, duration_days)
-
-    #     agent_df_idx = self.agent_info_df[pd.to_datetime(self.agent_info_df['date']) == pd.to_datetime(date_in)].index[0]
-    #     self.agent_info_df.loc[agent_df_idx, debug_power_key] += power_in_pib
-    #     # NOTE: we overwrite the sector duration here because agents are tracked in aggregate 
-    #     # over each day, rather than by each sector. This means that an inherent assumption
-    #     # of this model is that the duration of the sector is the same for all sectors on a given day.
-    #     self.agent_info_df.loc[agent_df_idx, debug_duration_key] = duration_days  
+        # NOTE: Deal power cannot be renewed in the current spec. However, recall that CC power
+        # gets a QA multiplier of 1, and thus it is part of the "QA" power in the model. The filecoin_model.py
+        # module CC and QA power separately, so we include the CC power renewed in the QA power calculations
+        # by adding it to the deal_power vector.
+        self.renewed_power[day_idx][1] += deal_power(cc_power_in_pib, duration_days)
+        self.agent_info_df.loc[agent_df_idx, 'deal_renewed'] += cc_power_in_pib
+        self.agent_info_df.loc[agent_df_idx, 'deal_renewed_duration'] = duration_days
 
     def post_global_step(self):
         pass
@@ -180,6 +161,13 @@ class SPAgent(mesa.Agent):
     def disburse_rewards(self, date_in, reward):
         df_idx = self.accounting_df[self.accounting_df['date'] == date_in].index[0]
         self.accounting_df.loc[df_idx, 'reward_FIL'] += reward
+
+    def get_se_power_at_date(self, date_in):
+        power_at_date = self.get_power_at_date(date_in)
+        return {
+            'se_cc_power': power_at_date['sched_expire_rb_pib'],
+            'se_deal_power': power_at_date['sched_expire_qa_pib'],
+        }
 
     def get_power_at_date(self, date_in):
         ii = (date_in - constants.NETWORK_DATA_START).days

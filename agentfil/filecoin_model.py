@@ -553,6 +553,7 @@ class FilecoinModel(mesa.Model):
         self.filecoin_df.loc[day_idx, 'day_onboarded_rbp_pib'] = day_macro_info['day_onboarded_rbp_pib']
         ## FLAG: div / 0 protection
         self.filecoin_df.loc[day_idx, 'day_onboarded_qap_pib'] = max(day_macro_info['day_onboarded_qap_pib'], constants.MIN_VALUE)
+        
         self.filecoin_df.loc[day_idx, 'day_renewed_rbp_pib'] = day_macro_info['day_renewed_rbp_pib']
         self.filecoin_df.loc[day_idx, 'day_renewed_qap_pib'] = day_macro_info['day_renewed_qap_pib']
         self.filecoin_df.loc[day_idx, 'day_sched_expire_rbp_pib'] = day_macro_info['day_sched_expire_rbp_pib']
@@ -776,6 +777,7 @@ class FilecoinModel(mesa.Model):
             agent_accounting_df = agent.accounting_df
             accounting_df_idx = agent_accounting_df[agent_accounting_df['date'] == date_in].index[0]
 
+            # TODO: think about updating the disburse_rewards function to do this in a more functional way
             # 25 % vests immediately
             agent_accounting_df.loc[accounting_df_idx, 'reward_FIL'] += agent_reward * 0.25
             # remainder vests linearly over the next 180 days
