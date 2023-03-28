@@ -24,42 +24,48 @@ class DCAAgent(SPAgent):
         super().__init__(model, id, historical_power, start_date, end_date)
 
         self.sector_duration = sector_duration
+        self.sector_duration_yrs = sector_duration / 360
         self.max_daily_onboard_qap_pib = max_daily_onboard_qap_pib
         self.renewal_rate = renewal_rate
 
-    """
-    For renewal, we need:
-    1 - figure out how much will expire that day
-    2 - renew the defined portion of it, based on available FIL constraints
-    3 - update the agent bookkeeping accordingly
-    """
-
     def step(self):
-        max_possible_qa_power = self.get_max_onboarding_qap_pib(self.current_date)
+        # TODO: agent can split this QAP into FIL+, or RB, or a combination
+        # how to decide??
+        # if CC, then QA = RB, if FIL+, then RB = QA / filplus_multiplier
 
-        # Compute how much FIL+ to onboard
-        rb_to_onboard = min(max_possible_qa_power/constants.FIL_PLUS_MULTIPLER, self.model.MAX_DAY_ONBOARD_RBP_PIB_PER_AGENT)
+        # for now, we put all power into FIL+ (deal power)
+        rb_to_onboard = min(self.max_daily_onboard_qap_pib/constants.FIL_PLUS_MULTIPLER, self.model.MAX_DAY_ONBOARD_RBP_PIB_PER_AGENT)
         qa_to_onboard = apply_qa_multiplier(rb_to_onboard)
+        pledge_per_pib = self.model.estimate_pledge_for_qa_power(self.current_date, 1.0)
+        
+        # debugging to ensure that pledge/sector seems reasonable
+        # sector_size_in_pib = constants.SECTOR_SIZE / constants.PIB
+        # pledge_per_sector = self.model.estimate_pledge_for_qa_power(self.current_date, sector_size_in_pib)
+        # print(pledge_per_pib, pledge_per_sector)
+        
+        pledge_needed_for_onboarding = qa_to_onboard * pledge_per_pib
+        pledge_repayment_value_onboard = self.compute_repayment_amount_from_supply_discount_rate_model(self.current_date, pledge_needed_for_onboarding, self.sector_duration_yrs)
 
-        qa_to_onboard = min(qa_to_onboard, self.max_daily_onboard_qap_pib)
-        rb_to_onboard = qa_to_onboard/constants.FIL_PLUS_MULTIPLER
+        # TODO: update to: put as much as possible into deal-power, and the remainder into CC power (renew first)
+        self.onboard_power(self.current_date, rb_to_onboard, qa_to_onboard, self.sector_duration)
 
-        onboard_success = self.onboard_power(self.current_date, rb_to_onboard, qa_to_onboard, self.sector_duration)
-        if onboard_success:
-            max_possible_qa_power -= qa_to_onboard
-
-        # renew according to configured renewal rate
+        # renewals
         if self.renewal_rate > 0:
             se_power_dict = self.get_se_power_at_date(self.current_date)
             # only renew CC power
             cc_power = se_power_dict['se_cc_power']
-            cc_power_to_renew = cc_power*self.renewal_rate
-            cc_power_to_renew = min(cc_power_to_renew, self.model.MAX_DAY_ONBOARD_RBP_PIB_PER_AGENT)
+            cc_power_to_renew = cc_power*self.renewal_rate  # we don't cap renewals, TODO: check whether this is a reasonable assumption
             
-            # check how much we can renew based on available FIL
-            max_possible_cc_power = max_possible_qa_power / constants.FIL_PLUS_MULTIPLER
-            cc_power_to_renew = min(cc_power_to_renew, max_possible_cc_power)
+            pledge_needed_for_renewal = cc_power_to_renew * pledge_per_pib
+            pledge_repayment_value_renew = self.compute_repayment_amount_from_supply_discount_rate_model(self.current_date, pledge_needed_for_renewal, self.sector_duration_yrs)
 
             self.renew_power(self.current_date, cc_power_to_renew, self.sector_duration)
+
+        # in the agent accounting, note how much was requested and how much was made available
+        # so that we can remove the delta from the rewards later
+        # TODO: it would be nice if you could remove this bookkeeping from the agent logic
+        total_pledge_requested_value = pledge_needed_for_onboarding + pledge_needed_for_renewal
+        total_pledge_repayment_value = pledge_repayment_value_onboard + pledge_repayment_value_renew
+        self.account_pledge_repayment_FIL(self.current_date, self.sector_duration, total_pledge_requested_value, total_pledge_repayment_value)
 
         super().step()

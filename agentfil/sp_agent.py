@@ -41,7 +41,10 @@ class SPAgent(mesa.Agent):
         self.accounting_df['renew_pledge_FIL'] = 0
         self.accounting_df['onboard_scheduled_pledge_release_FIL'] = 0
         self.accounting_df['renew_scheduled_pledge_release_FIL'] = 0
-        self.accounting_df['capital_inflow_FIL'] = 0
+        # self.accounting_df['capital_inflow_FIL'] = 0
+        self.accounting_df['pledge_requested_FIL'] = 0
+        self.accounting_df['pledge_repayment_FIL'] = 0
+        self.accounting_df['pledge_interest_payment_FIL'] = 0
 
         self.agent_info_df = pd.DataFrame({'date': pd.date_range(start_date, end_date, freq='D')[:-1]})
         self.agent_info_df['cc_onboarded'] = 0
@@ -124,6 +127,16 @@ class SPAgent(mesa.Agent):
         self.agent_info_df.loc[agent_df_idx, 'deal_renewed'] += cc_power_in_pib
         self.agent_info_df.loc[agent_df_idx, 'deal_renewed_duration'] = duration_days
 
+    def account_pledge_repayment_FIL(self, date_in, sector_duration_days, pledge_requested_FIL=0, pledge_repayment_FIL=0):
+        df_idx = self.accounting_df[self.accounting_df['date'] == date_in].index[0]
+        self.accounting_df.loc[df_idx, 'pledge_requested_FIL'] += pledge_requested_FIL
+        
+        # account for repayment when sector ends
+        df_idx += sector_duration_days
+        if df_idx < len(self.accounting_df):
+            self.accounting_df.loc[df_idx, 'pledge_repayment_FIL'] += pledge_repayment_FIL
+            self.accounting_df.loc[df_idx, 'pledge_interest_payment_FIL'] += (pledge_repayment_FIL - pledge_requested_FIL)
+            
     def post_global_step(self):
         pass
 
@@ -230,7 +243,14 @@ class SPAgent(mesa.Agent):
 
             global_ii += 1
 
-    def get_available_FIL(self, date_in):
+    
+    def _get_available_FIL(self, date_in):
+        """
+        Returns the amount of FIL available to the agent on the given date.
+        In this implementation, we compute the total FIL available by summing rewards, pledges, and capital inflows.
+        This makes sense if using the capital inflow model. If using the discount rate model, this function
+        is not relevant in that context.
+        """
         accounting_df_idx = self.accounting_df[pd.to_datetime(self.accounting_df['date']) == pd.to_datetime(date_in)].index[0]
         accounting_df_subset = self.accounting_df.loc[0:accounting_df_idx, :]
         
@@ -242,6 +262,27 @@ class SPAgent(mesa.Agent):
                         + np.sum(accounting_df_subset['capital_inflow_FIL'])
         return available_FIL
 
+    def get_available_FIL(self, date_in):
+        if hasattr(self.model, 'capital_inflow_process'):
+            return self._get_available_FIL(date_in)
+        else:
+            raise NotImplementedError("get_available_FIL not implemented when using discount rate model")
+    
+    def get_reward_FIL(self, date_in):
+        accounting_df_idx = self.accounting_df[pd.to_datetime(self.accounting_df['date']) == pd.to_datetime(date_in)].index[0]
+        accounting_df_subset = self.accounting_df.loc[0:accounting_df_idx, :]
+        
+        return np.sum(accounting_df_subset['reward_FIL'])
+    
+    def get_net_reward_FIL(self, date_in):
+        """
+        Returns rewards - (pledge delta due to borrowing costs)
+        """
+        accounting_df_idx = self.accounting_df[pd.to_datetime(self.accounting_df['date']) == pd.to_datetime(date_in)].index[0]
+        accounting_df_subset = self.accounting_df.loc[0:accounting_df_idx, :]
+        
+        return np.sum(accounting_df_subset['reward_FIL']) - np.sum(accounting_df_subset['pledge_delta_FIL'])
+
     def get_max_onboarding_qap_pib(self, date_in):
         available_FIL = self.get_available_FIL(date_in)
         if available_FIL > 0:
@@ -252,6 +293,20 @@ class SPAgent(mesa.Agent):
         if np.isnan(pibs_to_onboard):
             raise ValueError("Pibs to onboard yielded NAN")
         return pibs_to_onboard
+    
+    def compute_actual_power_possible_to_onboard_from_supply_discount_rate_model(self, desired_power_to_onboard, duration):
+        pledge_per_pib = self.model.estimate_pledge_for_qa_power(self.current_date, 1.0)
+        total_pledge_needed_for_onboards = desired_power_to_onboard * pledge_per_pib
+        available_FIL = self.model.borrow_FIL_with_discount_rate(self.current_date, total_pledge_needed_for_onboards, duration)
+        power_to_onboard = available_FIL / pledge_per_pib
+        return power_to_onboard, available_FIL, total_pledge_needed_for_onboards
+    
+    def compute_repayment_amount_from_supply_discount_rate_model(self, date_in, pledge_amount, duration_yrs, compounding_freq_yrs=1):
+        # treat the pledge amount as the current value, and compute future value based on the discount rate
+        discount_rate_pct = self.model.get_discount_rate(date_in)
+        discount_rate = discount_rate_pct / 100.0
+        future_value = pledge_amount * (1 + (discount_rate/compounding_freq_yrs)) ** (duration_yrs*compounding_freq_yrs)
+        return future_value
 
     def save_data(self, output_dir):
         accounting_fp = os.path.join(output_dir, 'agent_%d_accounting_info.csv' % (self.unique_id,))
