@@ -175,8 +175,3 @@ class GreedyAgent(SPAgent):
             self.onboard_power(self.current_date, rb_to_onboard, qa_to_onboard, best_duration)
 
         super().step()
-
-    def post_global_step(self):
-        # we can update local representation of anything else that should happen after
-        # global metrics for day are aggregated
-        pass

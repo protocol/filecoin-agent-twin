@@ -5,12 +5,12 @@ from numpy.random import default_rng
 import pandas as pd
 import os
 
-from . import constants
-from .power import cc_power, deal_power
+from .. import constants
+from ..power import cc_power, deal_power
 
 
 class SPAgent(mesa.Agent):
-    def __init__(self, model, agent_id, agent_seed, start_date, end_date):
+    def __init__(self, model, agent_id, agent_seed, start_date, end_date, max_sealing_throughput_pib=constants.DEFAULT_MAX_SEALING_THROUGHPUT_PIB):
         self.unique_id = agent_id  # the field unique_id is required by the framework
         self.model = model
 
@@ -21,6 +21,8 @@ class SPAgent(mesa.Agent):
         self.end_date = end_date
         self.sim_len_days = (self.end_date - constants.NETWORK_DATA_START).days
         self.current_day = (self.current_date - constants.NETWORK_DATA_START).days
+
+        self.max_sealing_throughput_pib = max_sealing_throughput_pib
 
         ########################################################################################
         # NOTE: self.t should be equal to self.model.filecoin_df['date']
@@ -72,7 +74,7 @@ class SPAgent(mesa.Agent):
         """
         self._bookkeep()
 
-    def onboard_power(self, date_in, cc_power_in_pib, qa_power_in_pib, duration_days):
+    def onboard_power(self, date_in, cc_power_in_pib, qa_power_in_pib, duration_days, pledge_for_onboarding, pledge_repayment_amount):
         """
         A convenience function which onboards the specified amount of power for a given date
         and updates other necessary internal variables to keep the agent in sync
@@ -89,7 +91,7 @@ class SPAgent(mesa.Agent):
         if cc_power_in_pib < self.model.MIN_DAY_ONBOARD_RBP_PIB_PER_AGENT:
             # if agent tries to onboard less than 1 sector, return
             return -1
-        if cc_power_in_pib > self.model.MAX_DAY_ONBOARD_RBP_PIB_PER_AGENT:
+        if cc_power_in_pib > self.max_sealing_throughput_pib:
             # if agent tries to onboard more than maximum allowable, return
             return -1
 
@@ -107,11 +109,13 @@ class SPAgent(mesa.Agent):
         # over each day, rather than by each sector. This means that an inherent assumption
         # of this model is that the duration of the sector is the same for all sectors on a given day.
         self.agent_info_df.loc[agent_df_idx, 'cc_onboarded_duration'] = duration_days 
-        self.agent_info_df.loc[agent_df_idx, 'deal_onboarded_duration'] = duration_days 
+        self.agent_info_df.loc[agent_df_idx, 'deal_onboarded_duration'] = duration_days
+
+        self._account_pledge_repayment_FIL(date_in, duration_days, pledge_for_onboarding, pledge_repayment_amount)
 
         return 0
     
-    def renew_power(self, date_in, cc_power_in_pib, duration_days):
+    def renew_power(self, date_in, cc_power_in_pib, duration_days, pledge_for_renewing, pledge_repayment_amount):
         day_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(date_in)].index[0]
         self.renewed_power[day_idx][0] += cc_power(cc_power_in_pib, duration_days)
         
@@ -127,7 +131,9 @@ class SPAgent(mesa.Agent):
         self.agent_info_df.loc[agent_df_idx, 'deal_renewed'] += cc_power_in_pib
         self.agent_info_df.loc[agent_df_idx, 'deal_renewed_duration'] = duration_days
 
-    def account_pledge_repayment_FIL(self, date_in, sector_duration_days, pledge_requested_FIL=0, pledge_repayment_FIL=0):
+        self._account_pledge_repayment_FIL(date_in, duration_days, pledge_for_renewing, pledge_repayment_amount)
+
+    def _account_pledge_repayment_FIL(self, date_in, sector_duration_days, pledge_requested_FIL=0, pledge_repayment_FIL=0):
         df_idx = self.accounting_df[self.accounting_df['date'] == date_in].index[0]
         self.accounting_df.loc[df_idx, 'pledge_requested_FIL'] += pledge_requested_FIL
         
@@ -303,7 +309,7 @@ class SPAgent(mesa.Agent):
     
     def compute_repayment_amount_from_supply_discount_rate_model(self, date_in, pledge_amount, duration_yrs, compounding_freq_yrs=1):
         # treat the pledge amount as the current value, and compute future value based on the discount rate
-        discount_rate_pct = self.model.get_discount_rate(date_in)
+        discount_rate_pct = self.model.get_discount_rate_pct(date_in)
         discount_rate = discount_rate_pct / 100.0
         future_value = pledge_amount * (1 + (discount_rate/compounding_freq_yrs)) ** (duration_yrs*compounding_freq_yrs)
         return future_value
