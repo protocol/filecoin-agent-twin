@@ -1,0 +1,19 @@
+name: agentfil
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - jax
+  - numpyro
+  - numpy
+  - pandas
+  - scikit-learn
+  - mesa
+  - jupyter
+  - matplotlib
+  - seaborn
+  - ipympl
+  - dill
+  - pycoingecko
+  - jupyterlab

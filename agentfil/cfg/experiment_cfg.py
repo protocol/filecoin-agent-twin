@@ -11,7 +11,7 @@ class ExperimentCfg(ABC):
         Code to configure the agents. Must return a tuple of 3 items:
         1. A list of agent constructors
         2. A list of agent constructor kwargs
-        3. A list of the agent starting power distributions
+        3. A list of the agent power fraction (proxy of agent size)
         """
         pass
 
@@ -53,3 +53,17 @@ class ExperimentCfg(ABC):
             'debug_model': False
         }
         return capital_inflow_process_kwargs
+    
+    def get_fil_supply_discount_rate_process_cfg(self):
+        """
+        Code to configure the FIL supply discount rate process. Must return a dictionary of kwargs
+        will be passed to the FIL supply discount rate process constructor.
+        """
+        fil_supply_discount_rate_process_kwargs = {
+            'min_discount_rate_pct':0, 
+            'max_discount_rate_pct':200,
+            'start_discount_rate_pct':25,
+            'behavior':'constant',
+            'seed':1234
+        }
+        return fil_supply_discount_rate_process_kwargs

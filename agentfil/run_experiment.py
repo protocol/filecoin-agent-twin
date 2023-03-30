@@ -19,7 +19,7 @@ def run_experiment(auth_config, experiment_name, experiment_output_dir,
     module_name = experiment['module_name']
     class_name = experiment['instantiator']
     kwargs = experiment['instantiator_kwargs']
-    filecoin_model_kwargs = experiment['filecoin_model_kwargs']
+    filecoin_model_kwargs = experiment.get('filecoin_model_kwargs', {})
     module = importlib.import_module(module_name)
     experiment_obj = getattr(module, class_name)(**kwargs)
 
@@ -28,7 +28,7 @@ def run_experiment(auth_config, experiment_name, experiment_output_dir,
     num_agents = len(agent_types)
     minting_process_kwargs = experiment_obj.get_minting_process_cfg()
     price_process_kwargs = experiment_obj.get_price_process_cfg()
-    capital_inflow_process_kwargs = experiment_obj.get_capital_inflow_process_cfg()
+    fil_supply_discount_rate_process_kwargs = experiment_obj.get_fil_supply_discount_rate_process_cfg()
     
     forecast_length = (end_date - start_date).days
 
@@ -39,7 +39,7 @@ def run_experiment(auth_config, experiment_name, experiment_output_dir,
                                    compute_cs_from_networkdatastart=True, use_historical_gas=False,
                                    price_process_kwargs=price_process_kwargs,
                                    minting_process_kwargs=minting_process_kwargs,
-                                   capital_inflow_process_kwargs=capital_inflow_process_kwargs,
+                                   fil_supply_discount_rate_process_kwargs=fil_supply_discount_rate_process_kwargs,
                                    **filecoin_model_kwargs)
     for _ in tqdm(range(forecast_length), disable=not verbose):
         filecoin_model.step()

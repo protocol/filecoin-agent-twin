@@ -5,12 +5,12 @@ from numpy.random import default_rng
 import pandas as pd
 import os
 
-from . import constants
-from .power import cc_power, deal_power
+from .. import constants
+from ..power import cc_power, deal_power
 
 
 class SPAgent(mesa.Agent):
-    def __init__(self, model, agent_id, agent_seed, start_date, end_date):
+    def __init__(self, model, agent_id, agent_seed, start_date, end_date, max_sealing_throughput_pib=constants.DEFAULT_MAX_SEALING_THROUGHPUT_PIB):
         self.unique_id = agent_id  # the field unique_id is required by the framework
         self.model = model
 
@@ -21,6 +21,8 @@ class SPAgent(mesa.Agent):
         self.end_date = end_date
         self.sim_len_days = (self.end_date - constants.NETWORK_DATA_START).days
         self.current_day = (self.current_date - constants.NETWORK_DATA_START).days
+
+        self.max_sealing_throughput_pib = max_sealing_throughput_pib
 
         ########################################################################################
         # NOTE: self.t should be equal to self.model.filecoin_df['date']
@@ -41,7 +43,10 @@ class SPAgent(mesa.Agent):
         self.accounting_df['renew_pledge_FIL'] = 0
         self.accounting_df['onboard_scheduled_pledge_release_FIL'] = 0
         self.accounting_df['renew_scheduled_pledge_release_FIL'] = 0
-        self.accounting_df['capital_inflow_FIL'] = 0
+        # self.accounting_df['capital_inflow_FIL'] = 0
+        self.accounting_df['pledge_requested_FIL'] = 0
+        self.accounting_df['pledge_repayment_FIL'] = 0
+        self.accounting_df['pledge_interest_payment_FIL'] = 0
 
         self.agent_info_df = pd.DataFrame({'date': pd.date_range(start_date, end_date, freq='D')[:-1]})
         self.agent_info_df['cc_onboarded'] = 0
@@ -69,7 +74,7 @@ class SPAgent(mesa.Agent):
         """
         self._bookkeep()
 
-    def onboard_power(self, date_in, cc_power_in_pib, qa_power_in_pib, duration_days):
+    def onboard_power(self, date_in, cc_power_in_pib, qa_power_in_pib, duration_days, pledge_for_onboarding, pledge_repayment_amount):
         """
         A convenience function which onboards the specified amount of power for a given date
         and updates other necessary internal variables to keep the agent in sync
@@ -86,7 +91,7 @@ class SPAgent(mesa.Agent):
         if cc_power_in_pib < self.model.MIN_DAY_ONBOARD_RBP_PIB_PER_AGENT:
             # if agent tries to onboard less than 1 sector, return
             return -1
-        if cc_power_in_pib > self.model.MAX_DAY_ONBOARD_RBP_PIB_PER_AGENT:
+        if cc_power_in_pib > self.max_sealing_throughput_pib:
             # if agent tries to onboard more than maximum allowable, return
             return -1
 
@@ -104,45 +109,40 @@ class SPAgent(mesa.Agent):
         # over each day, rather than by each sector. This means that an inherent assumption
         # of this model is that the duration of the sector is the same for all sectors on a given day.
         self.agent_info_df.loc[agent_df_idx, 'cc_onboarded_duration'] = duration_days 
-        self.agent_info_df.loc[agent_df_idx, 'deal_onboarded_duration'] = duration_days 
+        self.agent_info_df.loc[agent_df_idx, 'deal_onboarded_duration'] = duration_days
+
+        self._account_pledge_repayment_FIL(date_in, duration_days, pledge_for_onboarding, pledge_repayment_amount)
 
         return 0
+    
+    def renew_power(self, date_in, cc_power_in_pib, duration_days, pledge_for_renewing, pledge_repayment_amount):
+        day_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(date_in)].index[0]
+        self.renewed_power[day_idx][0] += cc_power(cc_power_in_pib, duration_days)
+        
+        agent_df_idx = self.agent_info_df[pd.to_datetime(self.agent_info_df['date']) == pd.to_datetime(date_in)].index[0]
+        self.agent_info_df.loc[agent_df_idx, 'cc_renewed'] += cc_power_in_pib
+        self.agent_info_df.loc[agent_df_idx, 'cc_renewed_duration'] = duration_days
 
-    # def onboard_power(self, date_in, power_in_pib, power_type, duration_days):
-    #     """
-    #     A convenience function which onboards the specified amount of power for a given date
-    #     and updates other necessary internal variables to keep the agent in sync
+        # NOTE: Deal power cannot be renewed in the current spec. However, recall that CC power
+        # gets a QA multiplier of 1, and thus it is part of the "QA" power in the model. The filecoin_model.py
+        # module CC and QA power separately, so we include the CC power renewed in the QA power calculations
+        # by adding it to the deal_power vector.
+        self.renewed_power[day_idx][1] += deal_power(cc_power_in_pib, duration_days)
+        self.agent_info_df.loc[agent_df_idx, 'deal_renewed'] += cc_power_in_pib
+        self.agent_info_df.loc[agent_df_idx, 'deal_renewed_duration'] = duration_days
 
-    #     NOTE: while the date_in argument makes this function general, it is intended to use
-    #     the current date of the agent. An assessment as to how using this function with
-    #     dates not in sequential order synced to the current date affects the network statistics
-    #     has not yet been conducted!
-    #     """
-    #     if power_type.lower()=='cc':
-    #         power_idx = 0
-    #         power_fn = cc_power
-    #         debug_power_key = 'cc_onboarded'
-    #         debug_duration_key = 'cc_onboarded_duration'
-    #     elif power_type.lower()=='deal' or power_type.lower()=='qa':
-    #         power_idx = 1
-    #         power_fn = deal_power
-    #         debug_power_key = 'deal_onboarded'
-    #         debug_duration_key = 'deal_onboarded_duration'
-    #     else:
-    #         raise ValueError('power must be either cc_power or deal_power')
+        self._account_pledge_repayment_FIL(date_in, duration_days, pledge_for_renewing, pledge_repayment_amount)
 
-    #     # convert the date to the index of the day in the simulation
-    #       # using filecoin_df to find the index works because the vectors self.onboarded_power, self.t, and self.model.filecoin_df are all aligned
-    #     day_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(date_in)].index[0]
-    #     self.onboarded_power[day_idx][power_idx] += power_fn(power_in_pib, duration_days)
-
-    #     agent_df_idx = self.agent_info_df[pd.to_datetime(self.agent_info_df['date']) == pd.to_datetime(date_in)].index[0]
-    #     self.agent_info_df.loc[agent_df_idx, debug_power_key] += power_in_pib
-    #     # NOTE: we overwrite the sector duration here because agents are tracked in aggregate 
-    #     # over each day, rather than by each sector. This means that an inherent assumption
-    #     # of this model is that the duration of the sector is the same for all sectors on a given day.
-    #     self.agent_info_df.loc[agent_df_idx, debug_duration_key] = duration_days  
-
+    def _account_pledge_repayment_FIL(self, date_in, sector_duration_days, pledge_requested_FIL=0, pledge_repayment_FIL=0):
+        df_idx = self.accounting_df[self.accounting_df['date'] == date_in].index[0]
+        self.accounting_df.loc[df_idx, 'pledge_requested_FIL'] += pledge_requested_FIL
+        
+        # account for repayment when sector ends
+        df_idx += sector_duration_days
+        if df_idx < len(self.accounting_df):
+            self.accounting_df.loc[df_idx, 'pledge_repayment_FIL'] += pledge_repayment_FIL
+            self.accounting_df.loc[df_idx, 'pledge_interest_payment_FIL'] += (pledge_repayment_FIL - pledge_requested_FIL)
+            
     def post_global_step(self):
         pass
 
@@ -180,6 +180,13 @@ class SPAgent(mesa.Agent):
     def disburse_rewards(self, date_in, reward):
         df_idx = self.accounting_df[self.accounting_df['date'] == date_in].index[0]
         self.accounting_df.loc[df_idx, 'reward_FIL'] += reward
+
+    def get_se_power_at_date(self, date_in):
+        power_at_date = self.get_power_at_date(date_in)
+        return {
+            'se_cc_power': power_at_date['sched_expire_rb_pib'],
+            'se_deal_power': power_at_date['sched_expire_qa_pib'],
+        }
 
     def get_power_at_date(self, date_in):
         ii = (date_in - constants.NETWORK_DATA_START).days
@@ -242,7 +249,14 @@ class SPAgent(mesa.Agent):
 
             global_ii += 1
 
-    def get_available_FIL(self, date_in):
+    
+    def _get_available_FIL(self, date_in):
+        """
+        Returns the amount of FIL available to the agent on the given date.
+        In this implementation, we compute the total FIL available by summing rewards, pledges, and capital inflows.
+        This makes sense if using the capital inflow model. If using the discount rate model, this function
+        is not relevant in that context.
+        """
         accounting_df_idx = self.accounting_df[pd.to_datetime(self.accounting_df['date']) == pd.to_datetime(date_in)].index[0]
         accounting_df_subset = self.accounting_df.loc[0:accounting_df_idx, :]
         
@@ -254,6 +268,27 @@ class SPAgent(mesa.Agent):
                         + np.sum(accounting_df_subset['capital_inflow_FIL'])
         return available_FIL
 
+    def get_available_FIL(self, date_in):
+        if hasattr(self.model, 'capital_inflow_process'):
+            return self._get_available_FIL(date_in)
+        else:
+            raise NotImplementedError("get_available_FIL not implemented when using discount rate model")
+    
+    def get_reward_FIL(self, date_in):
+        accounting_df_idx = self.accounting_df[pd.to_datetime(self.accounting_df['date']) == pd.to_datetime(date_in)].index[0]
+        accounting_df_subset = self.accounting_df.loc[0:accounting_df_idx, :]
+        
+        return np.sum(accounting_df_subset['reward_FIL'])
+    
+    def get_net_reward_FIL(self, date_in):
+        """
+        Returns rewards - (pledge delta due to borrowing costs)
+        """
+        accounting_df_idx = self.accounting_df[pd.to_datetime(self.accounting_df['date']) == pd.to_datetime(date_in)].index[0]
+        accounting_df_subset = self.accounting_df.loc[0:accounting_df_idx, :]
+        
+        return np.sum(accounting_df_subset['reward_FIL']) - np.sum(accounting_df_subset['pledge_delta_FIL'])
+
     def get_max_onboarding_qap_pib(self, date_in):
         available_FIL = self.get_available_FIL(date_in)
         if available_FIL > 0:
@@ -264,6 +299,20 @@ class SPAgent(mesa.Agent):
         if np.isnan(pibs_to_onboard):
             raise ValueError("Pibs to onboard yielded NAN")
         return pibs_to_onboard
+    
+    def compute_actual_power_possible_to_onboard_from_supply_discount_rate_model(self, desired_power_to_onboard, duration):
+        pledge_per_pib = self.model.estimate_pledge_for_qa_power(self.current_date, 1.0)
+        total_pledge_needed_for_onboards = desired_power_to_onboard * pledge_per_pib
+        available_FIL = self.model.borrow_FIL_with_discount_rate(self.current_date, total_pledge_needed_for_onboards, duration)
+        power_to_onboard = available_FIL / pledge_per_pib
+        return power_to_onboard, available_FIL, total_pledge_needed_for_onboards
+    
+    def compute_repayment_amount_from_supply_discount_rate_model(self, date_in, pledge_amount, duration_yrs, compounding_freq_yrs=1):
+        # treat the pledge amount as the current value, and compute future value based on the discount rate
+        discount_rate_pct = self.model.get_discount_rate_pct(date_in)
+        discount_rate = discount_rate_pct / 100.0
+        future_value = pledge_amount * (1 + (discount_rate/compounding_freq_yrs)) ** (duration_yrs*compounding_freq_yrs)
+        return future_value
 
     def save_data(self, output_dir):
         accounting_fp = os.path.join(output_dir, 'agent_%d_accounting_info.csv' % (self.unique_id,))
