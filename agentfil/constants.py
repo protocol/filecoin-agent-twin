@@ -15,6 +15,14 @@ MIN_VALUE=1e-6
 # but I'm not sure. If all of this is FIL+, this would mean that the maximum onboardable
 # power per day is 75 * 10 = 750 PiB QAP, which seems super high.
 DEFAULT_MAX_DAY_ONBOARD_RBP_PIB=75  # this is close to the historical max
+
+# From Filecoin Spec:
+# However, sector sealing time is estimated to take ~1.5 hours for a 32 GB sector on a machine 
+# that meets minimum hardware requirements for storage providers.
+# 1 GB = .000931 PiB.  32 GB = .029 PiB
+# .029 * 24/1.5 ~ .5 PiB/day
+DEFAULT_MIN_SEALING_THROUGHPUT_PIB=0.5
+DEFAULT_MAX_SEALING_THROUGHPUT_PIB=25
 MIN_SECTORS_ONBOARD=1
 
 FIL_PLUS_MULTIPLER=10

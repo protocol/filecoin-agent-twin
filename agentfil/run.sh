@@ -7,8 +7,8 @@
 run_file=${1:-"None"}  # input filename which contains experiment configs to run
 auth_config=${2:-"None"} # JSON file containing bearer token for data downloads
 num_jobs=${3:-4}
-start_date=${4:-"2023-02-01"}
-end_date=${5:-"2026-02-01"}
+start_date=${4:-"2023-03-15"}
+end_date=${5:-"2030-03-15"}
 OVERWRITE_EXISTING=${5:-0} # if 1, reruns experiments even if output already exists
                            # if 0, skips experiments if output already exists
 root_output_dir=${6:-"$HOME/agentfil/exp"}
