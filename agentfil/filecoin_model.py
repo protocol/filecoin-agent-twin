@@ -11,7 +11,7 @@ from tqdm import tqdm
 from mechafil import data, vesting, minting, supply, locking
 
 from . import constants
-from . import sp_agent
+from .agents import sp_agent
 from . import rewards_per_sector_process
 from . import price_process
 from . import capital_inflow_process
@@ -174,6 +174,7 @@ class FilecoinModel(mesa.Model):
         self._download_historical_data()
         self._seed_agents(agent_types=agent_types, agent_kwargs_list=agent_kwargs_list)
         self._fast_forward_to_simulation_start()
+        self._zero_agent_rewards()  # do this to establish causality between agent actions and rewards
 
         self._setup_global_forecasts()
 
@@ -220,7 +221,14 @@ class FilecoinModel(mesa.Model):
         # call stuff here that should be updated before agents make decisions
         # self.price_process.step()
         self.minting_process.step()
-        self.fil_supply_discount_rate_process.step()
+
+        # since the forecasts are updated *before* the agents make decisions, we need to
+        # use the previous day's circulating supply when setting the discount rate for today
+        # NOTE that this is only applicable in the case where the discount rate is computed adaptively
+        filecoin_df_idx = self.filecoin_df[self.filecoin_df['date'] == self.current_date].index[0]
+        prev_day_idx = filecoin_df_idx - 1
+        prev_circ_supply = self.filecoin_df.loc[prev_day_idx, 'circ_supply']
+        self.fil_supply_discount_rate_process.step(circ_supply=prev_circ_supply)
     
     def _step_post_network_updates(self):
         # call stuff here that should be run after all network statistics have been updated
@@ -273,12 +281,12 @@ class FilecoinModel(mesa.Model):
         pledge_cap = qa_power_pib * constants.PIB * pledge_cap_FIL_per_sector / constants.SECTOR_SIZE
         return min(pledge_cap, added_pledge)
     
-    def get_discount_rate(self, date_in):
+    def get_discount_rate_pct(self, date_in):
         day_idx = self.filecoin_df[self.filecoin_df['date'] == date_in].index[0]
         return self.filecoin_df.loc[day_idx, 'discount_rate_pct']
 
     def borrow_FIL_with_discount_rate(self, date_in, borrow_amt_FIL, duration_yrs, compounding_freq_yrs=1):
-        discount_rate_pct = self.get_discount_rate(date_in)
+        discount_rate_pct = self.get_discount_rate_pct(date_in)
         discount_rate = discount_rate_pct / 100.0
         return borrow_amt_FIL / (1.0 + discount_rate / compounding_freq_yrs) ** (compounding_freq_yrs * duration_yrs)
 
@@ -789,7 +797,7 @@ class FilecoinModel(mesa.Model):
 
         # TODO: add termination penalties here
 
-        total_day_capital_inflow_FIL = self.filecoin_df.loc[day_idx, 'capital_inflow_FIL']
+        # total_day_capital_inflow_FIL = self.filecoin_df.loc[day_idx, 'capital_inflow_FIL']
         for agent_info in self.agents:
             agent = agent_info['agent']
             agent_day_power_stats = agent.get_power_at_date(date_in)
@@ -811,15 +819,20 @@ class FilecoinModel(mesa.Model):
             # remainder vests linearly over the next 180 days
             agent_accounting_df.loc[accounting_df_idx+1:accounting_df_idx+180, 'reward_FIL'] += (agent_reward * 0.75)/180
 
-            # if there is any capital inflow FIL, distribute it to the agents according to the inflow distribution policy
-            if total_day_capital_inflow_FIL > 0.0:
-                # TODO: need to figure out how to generalize the inputs to the distribution inflow policy function
-                FIL_to_agent = math.floor(self.capital_inflow_distribution_policy(total_agent_qap_onboarded, 
-                                                                                  total_day_onboard_and_renew_pib, 
-                                                                                  total_day_capital_inflow_FIL))
-                agent.accounting_df.loc[accounting_df_idx, 'capital_inflow_FIL'] += FIL_to_agent
+            # # if there is any capital inflow FIL, distribute it to the agents according to the inflow distribution policy
+            # if total_day_capital_inflow_FIL > 0.0:
+            #     # TODO: need to figure out how to generalize the inputs to the distribution inflow policy function
+            #     FIL_to_agent = math.floor(self.capital_inflow_distribution_policy(total_agent_qap_onboarded, 
+            #                                                                       total_day_onboard_and_renew_pib, 
+            #                                                                       total_day_capital_inflow_FIL))
+            #     agent.accounting_df.loc[accounting_df_idx, 'capital_inflow_FIL'] += FIL_to_agent
 
             agent.post_global_step()
+
+    def _zero_agent_rewards(self):
+        for agent_info in self.agents:
+            agent = agent_info['agent']
+            agent.accounting_df['reward_FIL'] = 0.0
 
     def save_data(self, output_dir):
         self.filecoin_df.to_csv(os.path.join(output_dir, 'filecoin_df.csv'))
