@@ -307,11 +307,13 @@ class SPAgent(mesa.Agent):
         power_to_onboard = available_FIL / pledge_per_pib
         return power_to_onboard, available_FIL, total_pledge_needed_for_onboards
     
-    def compute_repayment_amount_from_supply_discount_rate_model(self, date_in, pledge_amount, duration_yrs, compounding_freq_yrs=1):
+    def compute_repayment_amount_from_supply_discount_rate_model(self, date_in, pledge_amount, duration_yrs):
         # treat the pledge amount as the current value, and compute future value based on the discount rate
         discount_rate_pct = self.model.get_discount_rate_pct(date_in)
         discount_rate = discount_rate_pct / 100.0
-        future_value = pledge_amount * (1 + (discount_rate/compounding_freq_yrs)) ** (duration_yrs*compounding_freq_yrs)
+        
+        #future_value = pledge_amount * (1 + (discount_rate/compounding_freq_yrs)) ** (duration_yrs*compounding_freq_yrs)
+        future_value = pledge_amount * np.exp(discount_rate * duration_yrs)
         return future_value
 
     def save_data(self, output_dir):
