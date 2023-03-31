@@ -20,9 +20,10 @@ class BasicRationalAgent(SPAgent):
      [ ] - Sector duration - this can be an input config option for the agent
     """
     def __init__(self, model, id, historical_power, start_date, end_date,
-                 max_daily_rb_onboard_pib=3, renewal_rate=0.6, fil_plus_rate=0.6, sector_duration=360,
+                 max_sealing_throughput=constants.DEFAULT_MAX_SEALING_THROUGHPUT_PIB, max_daily_rb_onboard_pib=3,
+                 renewal_rate=0.6, fil_plus_rate=0.6, sector_duration=360,
                  discount_rate_floor_pct=20):
-        super().__init__(model, id, historical_power, start_date, end_date)
+        super().__init__(model, id, historical_power, start_date, end_date, max_sealing_throughput_pib=max_sealing_throughput)
 
         self.sector_duration = sector_duration
         self.sector_duration_yrs = sector_duration / 360

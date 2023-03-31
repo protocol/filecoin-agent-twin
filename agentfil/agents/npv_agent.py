@@ -17,9 +17,10 @@ class NPVAgent(SPAgent):
      [ ] - 
     """
     def __init__(self, model, id, historical_power, start_date, end_date,
-                 max_daily_rb_onboard_pib=3, renewal_rate = 0.6, fil_plus_rate=0.6, 
+                 max_sealing_throughput=constants.DEFAULT_MAX_SEALING_THROUGHPUT_PIB, max_daily_rb_onboard_pib=3,
+                 renewal_rate = 0.6, fil_plus_rate=0.6, 
                  agent_optimism=4, agent_discount_rate_yr_pct=50):
-        super().__init__(model, id, historical_power, start_date, end_date)
+        super().__init__(model, id, historical_power, start_date, end_date, max_sealing_throughput_pib=max_sealing_throughput)
 
         self.max_daily_rb_onboard_pib = max_daily_rb_onboard_pib
         self.renewal_rate = renewal_rate
@@ -71,6 +72,7 @@ class NPVAgent(SPAgent):
         # NOTE: this assumes that the pledge remains constant. This is not true, but a zeroth-order approximation
         future_rewards_per_sector_estimate = self.forecast_day_rewards_per_sector(date_in, sector_duration)
         future_rewards_estimate = np.sum(future_rewards_per_sector_estimate)
+        # continuous discounting
         future_rewards_estimate_discounted = future_rewards_estimate / np.exp(self.agent_discount_rate_yr * sector_duration)
         
         # get the cost per sector for the duration, which in this case is just borrowing costs

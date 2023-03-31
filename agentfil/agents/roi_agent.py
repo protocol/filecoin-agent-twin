@@ -17,9 +17,10 @@ class ROIAgent(SPAgent):
      [ ] - 
     """
     def __init__(self, model, id, historical_power, start_date, end_date,
-                 max_daily_rb_onboard_pib=3, renewal_rate = 0.6, fil_plus_rate=0.6, 
+                 max_sealing_throughput=constants.DEFAULT_MAX_SEALING_THROUGHPUT_PIB, max_daily_rb_onboard_pib=3,
+                 renewal_rate = 0.6, fil_plus_rate=0.6, 
                  agent_optimism=4, roi_threshold=0.1):
-        super().__init__(model, id, historical_power, start_date, end_date)
+        super().__init__(model, id, historical_power, start_date, end_date, max_sealing_throughput_pib=max_sealing_throughput)
 
         self.max_daily_rb_onboard_pib = max_daily_rb_onboard_pib
         self.renewal_rate = renewal_rate
