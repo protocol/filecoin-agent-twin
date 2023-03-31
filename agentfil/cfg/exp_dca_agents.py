@@ -7,6 +7,8 @@ from agentfil.agents.dca_agent import DCAAgent
 
 class ExpDCAAgentsConstantDiscountRate(ExperimentCfg):
     def __init__(self, num_agents, 
+                 agent_power_distribution,
+                 agent_max_sealing_throughput,
                  max_daily_rb_onboard_pib, 
                  renewal_rate, 
                  fil_plus_rate, 
@@ -14,12 +16,15 @@ class ExpDCAAgentsConstantDiscountRate(ExperimentCfg):
                  fil_supply_discount_rate):
         
         self.num_agents = num_agents
+        self.agent_max_sealing_throughput = agent_max_sealing_throughput
+        self.agent_power_distribution = agent_power_distribution
+
         # agent related configuration
         self.max_daily_rb_onboard_pib = max_daily_rb_onboard_pib
         self.renewal_rate = renewal_rate
         self.fil_plus_rate = fil_plus_rate
         self.sector_duration = sector_duration
-
+        
         # external environment configuration
         self.fil_supply_discount_rate = fil_supply_discount_rate
 
@@ -30,16 +35,14 @@ class ExpDCAAgentsConstantDiscountRate(ExperimentCfg):
         for ii in range(self.num_agents):
             agent_kwargs = {
                 'max_daily_rb_onboard_pib': self.max_daily_rb_onboard_pib,
+                'max_sealing_throughput': self.agent_max_sealing_throughput[ii],
                 'renewal_rate': self.renewal_rate,
                 'fil_plus_rate': self.fil_plus_rate,
                 'sector_duration': self.sector_duration,
             }
             agent_kwargs_vec.append(agent_kwargs)
 
-        # uniform power distribution
-        agent_power_distribution = [1]
-
-        return agent_types, agent_kwargs_vec, agent_power_distribution
+        return agent_types, agent_kwargs_vec, self.agent_power_distribution
     
     def get_fil_supply_discount_rate_process_cfg(self):
         fil_supply_discount_rate_process_kwargs = {
@@ -54,6 +57,8 @@ class ExpDCAAgentsConstantDiscountRate(ExperimentCfg):
 
 class ExpDCAAgentsLinearAdaptiveDiscountRate(ExperimentCfg):
     def __init__(self, num_agents, 
+                 agent_power_distribution,
+                 agent_max_sealing_throughput,
                  max_daily_rb_onboard_pib, 
                  renewal_rate, 
                  fil_plus_rate, 
@@ -63,6 +68,9 @@ class ExpDCAAgentsLinearAdaptiveDiscountRate(ExperimentCfg):
                  start_discount_rate_pct,):
         
         self.num_agents = num_agents
+        self.agent_max_sealing_throughput = agent_max_sealing_throughput
+        self.agent_power_distribution = agent_power_distribution
+
         # agent related configuration
         self.max_daily_rb_onboard_pib = max_daily_rb_onboard_pib
         self.renewal_rate = renewal_rate
@@ -81,16 +89,14 @@ class ExpDCAAgentsLinearAdaptiveDiscountRate(ExperimentCfg):
         for ii in range(self.num_agents):
             agent_kwargs = {
                 'max_daily_rb_onboard_pib': self.max_daily_rb_onboard_pib,
+                'max_sealing_throughput': self.agent_max_sealing_throughput[ii],
                 'renewal_rate': self.renewal_rate,
                 'fil_plus_rate': self.fil_plus_rate,
                 'sector_duration': self.sector_duration,
             }
             agent_kwargs_vec.append(agent_kwargs)
 
-        # uniform power distribution
-        agent_power_distribution = [1]
-
-        return agent_types, agent_kwargs_vec, agent_power_distribution
+        return agent_types, agent_kwargs_vec, self.agent_power_distribution
     
     def get_fil_supply_discount_rate_process_cfg(self):
         fil_supply_discount_rate_process_kwargs = {
