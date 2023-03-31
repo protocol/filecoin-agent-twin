@@ -1,5 +1,5 @@
 from datetime import timedelta
-from . import constants
+from .. import constants
 from .sp_agent import SPAgent
 from ..power import cc_power, deal_power
 from ..filecoin_model import apply_qa_multiplier

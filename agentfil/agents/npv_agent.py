@@ -1,5 +1,5 @@
 from datetime import timedelta
-from . import constants
+from .. import constants
 from .sp_agent import SPAgent
 from ..power import cc_power, deal_power
 from ..filecoin_model import apply_qa_multiplier
@@ -98,7 +98,7 @@ class NPVAgent(SPAgent):
             
         max_npv_idx = np.argmax(npv_estimate_vec)
         best_duration = self.duration_vec_days[max_npv_idx]
-        if npv_estimate_vec[max_npv_idx] > self.roi_threshold:
+        if npv_estimate_vec[max_npv_idx] > 0:
             # for now, we put all power into FIL+ (deal power)
             rb_to_onboard = min(self.max_daily_rb_onboard_pib, self.max_sealing_throughput_pib)
             qa_to_onboard = apply_qa_multiplier(rb_to_onboard * self.fil_plus_rate)
