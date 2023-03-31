@@ -1,5 +1,5 @@
 from datetime import timedelta
-from . import constants
+from .. import constants
 from .sp_agent import SPAgent
 from ..power import cc_power, deal_power
 from ..filecoin_model import apply_qa_multiplier
@@ -70,7 +70,7 @@ class BasicRationalAgent(SPAgent):
             # only renew CC power
             cc_power = se_power_dict['se_cc_power']
             cc_power_to_renew = cc_power*self.renewal_rate  # we don't cap renewals, TODO: check whether this is a reasonable assumption
-            cc_power_to_renew = self.scale_power_by_discount_rate(qa_to_onboard, current_discount_rate_pct)
+            cc_power_to_renew = self.scale_power_by_discount_rate(cc_power_to_renew, current_discount_rate_pct)
 
             pledge_needed_for_renewal = cc_power_to_renew * pledge_per_pib
             pledge_repayment_value_renew = self.compute_repayment_amount_from_supply_discount_rate_model(self.current_date, 
