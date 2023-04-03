@@ -63,6 +63,7 @@ class NPVAgent(SPAgent):
 
 
     def estimate_npv(self, sector_duration, date_in):
+        sector_duration_yrs = sector_duration / 360.0
         filecoin_df_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(date_in)].index[0]
 
         # NOTE: we need to use yesterday's metrics b/c today's haven't yet been aggregated by the system yet
@@ -73,10 +74,9 @@ class NPVAgent(SPAgent):
         future_rewards_per_sector_estimate = self.forecast_day_rewards_per_sector(date_in, sector_duration)
         future_rewards_estimate = np.sum(future_rewards_per_sector_estimate)
         # continuous discounting
-        future_rewards_estimate_discounted = future_rewards_estimate / np.exp(self.agent_discount_rate_yr * sector_duration)
+        future_rewards_estimate_discounted = future_rewards_estimate / np.exp(self.agent_discount_rate_yr * sector_duration_yrs)
         
         # get the cost per sector for the duration, which in this case is just borrowing costs
-        sector_duration_yrs = sector_duration / 360.0
         pledge_repayment_estimate = self.compute_repayment_amount_from_supply_discount_rate_model(date_in, prev_day_pledge_per_QAP, sector_duration_yrs)
         cost_per_sector_estimate = pledge_repayment_estimate - prev_day_pledge_per_QAP
 
@@ -98,6 +98,7 @@ class NPVAgent(SPAgent):
             
         max_npv_idx = np.argmax(npv_estimate_vec)
         best_duration = self.duration_vec_days[max_npv_idx]
+        best_duration_yrs = best_duration / 360.0
         if npv_estimate_vec[max_npv_idx] > 0:
             # for now, we put all power into FIL+ (deal power)
             rb_to_onboard = min(self.max_daily_rb_onboard_pib, self.max_sealing_throughput_pib)
@@ -107,8 +108,8 @@ class NPVAgent(SPAgent):
             total_qa_onboarded = rb_to_onboard + qa_to_onboard
             pledge_needed_for_onboarding = total_qa_onboarded * pledge_per_pib
             pledge_repayment_value_onboard = self.compute_repayment_amount_from_supply_discount_rate_model(self.current_date, 
-                                                                                                        pledge_needed_for_onboarding, 
-                                                                                                        best_duration)
+                                                                                                           pledge_needed_for_onboarding, 
+                                                                                                           best_duration_yrs)
 
             self.onboard_power(self.current_date, rb_to_onboard, total_qa_onboarded, best_duration,
                                pledge_needed_for_onboarding, pledge_repayment_value_onboard)
@@ -120,7 +121,7 @@ class NPVAgent(SPAgent):
             pledge_needed_for_renewal = cc_power_to_renew * pledge_per_pib
             pledge_repayment_value_renew = self.compute_repayment_amount_from_supply_discount_rate_model(self.current_date, 
                                                                                                          pledge_needed_for_renewal, 
-                                                                                                         best_duration)
+                                                                                                         best_duration_yrs)
 
             self.renew_power(self.current_date, cc_power_to_renew, best_duration,
                              pledge_needed_for_renewal, pledge_repayment_value_renew)

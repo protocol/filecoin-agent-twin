@@ -78,9 +78,15 @@ class ROIAgent(SPAgent):
         roi_estimate = (future_rewards_per_sector_estimate.sum() - cost_per_sector_estimate) / prev_day_pledge_per_QAP
         
         # annualize it so that we can have the same frame of reference when comparing different sector durations
-        duration_yr = sector_duration / 360.0  
-        roi_estimate_annualized = (1.0+roi_estimate)**(1.0/duration_yr) - 1
+        duration_yr = sector_duration / 360.0
+        if roi_estimate < -1:
+            roi_estimate_annualized = self.roi_threshold - 1  # if ROI is too low, set it so that it doesn't onboard.
+                                                              # otherwise, you would take an exponent of a negative number
+                                                              # to a fractional power below and get a complex number
+        else:
+            roi_estimate_annualized = (1.0+roi_estimate)**(1.0/duration_yr) - 1
         
+        # print(roi_estimate, roi_estimate_annualized, duration_yr)
         # if np.isnan(future_rewards_per_sector_estimate.sum()) or np.isnan(prev_day_pledge_per_QAP) or np.isnan(roi_estimate) or np.isnan(roi_estimate_annualized):
         #     print(self.unique_id, future_rewards_per_sector_estimate.sum(), prev_day_pledge_per_QAP, roi_estimate, roi_estimate_annualized)
 
@@ -97,8 +103,8 @@ class ROIAgent(SPAgent):
             
         max_roi_idx = np.argmax(roi_estimate_vec)
         best_duration = self.duration_vec_days[max_roi_idx]
+        best_duration_yrs = best_duration / 360.0
         if roi_estimate_vec[max_roi_idx] > self.roi_threshold:
-            # for now, we put all power into FIL+ (deal power)
             rb_to_onboard = min(self.max_daily_rb_onboard_pib, self.max_sealing_throughput_pib)
             qa_to_onboard = apply_qa_multiplier(rb_to_onboard * self.fil_plus_rate)
             pledge_per_pib = self.model.estimate_pledge_for_qa_power(self.current_date, 1.0)
@@ -107,7 +113,7 @@ class ROIAgent(SPAgent):
             pledge_needed_for_onboarding = total_qa_onboarded * pledge_per_pib
             pledge_repayment_value_onboard = self.compute_repayment_amount_from_supply_discount_rate_model(self.current_date, 
                                                                                                         pledge_needed_for_onboarding, 
-                                                                                                        best_duration)
+                                                                                                        best_duration_yrs)
 
             self.onboard_power(self.current_date, rb_to_onboard, total_qa_onboarded, best_duration,
                                pledge_needed_for_onboarding, pledge_repayment_value_onboard)
@@ -119,7 +125,7 @@ class ROIAgent(SPAgent):
             pledge_needed_for_renewal = cc_power_to_renew * pledge_per_pib
             pledge_repayment_value_renew = self.compute_repayment_amount_from_supply_discount_rate_model(self.current_date, 
                                                                                                          pledge_needed_for_renewal, 
-                                                                                                         best_duration)
+                                                                                                         best_duration_yrs)
 
             self.renew_power(self.current_date, cc_power_to_renew, best_duration,
                              pledge_needed_for_renewal, pledge_repayment_value_renew)
