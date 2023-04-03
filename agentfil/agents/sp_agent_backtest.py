@@ -1,7 +1,7 @@
 from datetime import timedelta
-from . import constants
+from .. import constants
 from .sp_agent import SPAgent
-from .power import cc_power, deal_power
+from ..power import cc_power, deal_power
 
 class SPAgent_Backtest(SPAgent):
     """
