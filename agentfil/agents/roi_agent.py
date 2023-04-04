@@ -108,7 +108,7 @@ class ROIAgent(SPAgent):
             qa_to_onboard = self.model.apply_qa_multiplier(rb_to_onboard * self.fil_plus_rate,
                                                        fil_plus_multipler=constants.FIL_PLUS_MULTIPLER,
                                                        date_in=self.current_date,
-                                                       sector_duration_days=self.sector_duration) + \
+                                                       sector_duration_days=best_duration) + \
                         rb_to_onboard * (1-self.fil_plus_rate)
             pledge_per_pib = self.model.estimate_pledge_for_qa_power(self.current_date, 1.0)
 
