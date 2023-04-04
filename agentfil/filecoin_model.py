@@ -60,16 +60,6 @@ def distribute_agent_power_geometric_series(num_agents, a=0.2):
     return agent_power_distributions
 
 
-def apply_qa_multiplier(power_in, 
-                        fil_plus_multipler=constants.FIL_PLUS_MULTIPLER, 
-                        date_in=None, sdm=None, sdm_kwargs=None):
-    if sdm is None:
-        return power_in * fil_plus_multipler
-    else:
-        sdm_multiplier = sdm(power_in, **sdm_kwargs)
-        return power_in * sdm_multiplier * fil_plus_multipler
-
-
 class FilecoinModel(mesa.Model):
     def __init__(self, n, start_date, end_date, spacescope_cfg=None,
                  max_day_onboard_rbp_pib=constants.DEFAULT_MAX_DAY_ONBOARD_RBP_PIB,
@@ -78,6 +68,8 @@ class FilecoinModel(mesa.Model):
                  price_process_kwargs=None, minting_process_kwargs=None, 
                  capital_inflow_process_kwargs=None, capital_inflow_distribution_policy=None, capital_inflow_distribution_policy_kwargs=None,
                  fil_supply_discount_rate_process_kwargs=None,
+                 sdm=None, sdm_kwargs=None,  # TODO: try to generalize this as a set of possible protocol updates
+                 renewals_setting='optimistic',
                  random_seed=1234):
         """
         n: the number of agents to instantiate
@@ -109,6 +101,17 @@ class FilecoinModel(mesa.Model):
         capital_inflow_distribution_policy: a function that determines the percentage of total capital inflow that is allocated to a given miner
         capital_inflow_distribution_policy_kwargs: a dictionary of keyword arguments to pass to the capital inflow distribution policy
         fil_supply_discount_rate_process_kwargs: a dictionary of keyword arguments to pass to the FIL supply discount rate process
+        sdm: a function handle which computes a SDM multiplier. It must have the following signature:
+            def sdm(...):
+        sdm_kwargs: a dictionary of keyword arguments to pass to the SDM function
+        renewals_setting: a string that specifies how to compute the QA power. Valid options are: 'optimistic' (default) and 'conservative'
+            1 - In the optimistic setting, renewals are computed for both QA and CC power. This is to capture the sentiment that as Deal sectors
+                expire, even though an explicit renewal is not made, it is in effect with more deals coming online, or the deal being renewed
+                through the normal channel of expire + re-onboard.
+            2 - In the conservative setting, renewals are only computed for CC sectors.  NOTE that this is not properly implemented yet, b/c
+                currently, the CC power is renewed.  However, the CC contains CC sectors & QA sectors (without the QA multiplier), so in effect
+                this is not as conservative as you might expect if ONLY CC sectors were indeed being renewed.
+        random_seed: the random seed to use for the simulation
         """
         if spacescope_cfg is None:
             raise ValueError("spacescope_cfg must be specified")
@@ -141,6 +144,11 @@ class FilecoinModel(mesa.Model):
         self.fil_supply_discount_rate_process_kwargs = fil_supply_discount_rate_process_kwargs
         if self.fil_supply_discount_rate_process_kwargs is None:
             self.fil_supply_discount_rate_process_kwargs = {}
+
+        self.sdm = sdm
+        self.sdm_kwargs = sdm_kwargs
+
+        self.renewals_setting = renewals_setting
 
         self.random_seed = random_seed
         self.schedule = mesa.time.SimultaneousActivation(self)
@@ -177,6 +185,19 @@ class FilecoinModel(mesa.Model):
         self._zero_agent_rewards()  # do this to establish causality between agent actions and rewards
 
         self._setup_global_forecasts()
+
+    def apply_qa_multiplier(self,
+                            power_in, 
+                            fil_plus_multipler=constants.FIL_PLUS_MULTIPLER, 
+                            date_in=None,
+                            sector_duration_days=365):
+        if self.sdm is not None:
+            sdm_kwargs = {} if self.sdm_kwargs is None else self.sdm_kwargs
+            sdm_multiplier = self.sdm(date_in=date_in, sector_duration_days=sector_duration_days, **sdm_kwargs)
+            return power_in * sdm_multiplier * fil_plus_multipler
+        else: # Assume no SDM
+            return power_in * fil_plus_multipler
+            
 
     def step(self):
         # update global forecasts
@@ -323,6 +344,7 @@ class FilecoinModel(mesa.Model):
                 'day_onboarded_qa_power_pib', 'extended_qa', 'total_qa', 'terminated_qa',
             ]
         ]
+        self.df_historical = self.df_historical[self.df_historical['date'] <= (self.start_date-timedelta(days=1))]
         # rename columns for internal consistency
         self.df_historical = self.df_historical.rename(
             columns={
@@ -340,6 +362,7 @@ class FilecoinModel(mesa.Model):
                 'total_qa': 'sched_expire_qa_pib',
             }
         )
+        
 
         final_date_historical = historical_stats.iloc[-1]['date']
         self.df_future = scheduled_df[scheduled_df['date'] >= final_date_historical][['date', 'sched_expire_rb_pib', 'sched_expire_qa_pib']]

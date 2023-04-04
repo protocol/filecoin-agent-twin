@@ -29,6 +29,7 @@ class SPAgent(mesa.Agent):
         self.t = [start_date + timedelta(days=i) for i in range(self.sim_len_days)]
         ########################################################################################
 
+        # do we need to parallel account fro this in onboarded_power and teh data frame??
         self.onboarded_power = [[cc_power(0), deal_power(0)] for _ in range(self.sim_len_days)]
         self.renewed_power = [[cc_power(0), deal_power(0)] for _ in range(self.sim_len_days)]
         self.terminated_power = [[cc_power(0), deal_power(0)] for _ in range(self.sim_len_days)]
@@ -114,8 +115,13 @@ class SPAgent(mesa.Agent):
         self._account_pledge_repayment_FIL(date_in, duration_days, pledge_for_onboarding, pledge_repayment_amount)
 
         return 0
-    
-    def renew_power(self, date_in, cc_power_in_pib, duration_days, pledge_for_renewing, pledge_repayment_amount):
+
+    def renew_power_conservative(self, date_in, cc_power_in_pib, deal_power_in_pib, duration_days, pledge_for_renewing, pledge_repayment_amount):
+        """
+        TODO: add to this ...
+        However the most conservative picture is to assume constant onboarding and no effective renewal, in which case QAP 
+        dips in the future as shown here.
+        """
         day_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(date_in)].index[0]
         self.renewed_power[day_idx][0] += cc_power(cc_power_in_pib, duration_days)
         
@@ -132,6 +138,43 @@ class SPAgent(mesa.Agent):
         self.agent_info_df.loc[agent_df_idx, 'deal_renewed_duration'] = duration_days
 
         self._account_pledge_repayment_FIL(date_in, duration_days, pledge_for_renewing, pledge_repayment_amount)
+
+    def renew_power_optimistic(self, date_in, cc_power_in_pib, deal_power_in_pib, duration_days, pledge_for_renewing, pledge_repayment_amount):
+        """
+        TODO: add to this ...
+
+         An optimistic framing is that although deals aren’t renewed in the same way sectors are extended, they may be re-onboarded 
+         in the future at a similar rate, which could either be expressed as an effective renewal rate as it is currently, or alternatively 
+         through growing onboarding. 
+        """
+        day_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(date_in)].index[0]
+        self.renewed_power[day_idx][0] += cc_power(cc_power_in_pib, duration_days)
+        
+        agent_df_idx = self.agent_info_df[pd.to_datetime(self.agent_info_df['date']) == pd.to_datetime(date_in)].index[0]
+        self.agent_info_df.loc[agent_df_idx, 'cc_renewed'] += cc_power_in_pib
+        self.agent_info_df.loc[agent_df_idx, 'cc_renewed_duration'] = duration_days
+
+        self.renewed_power[day_idx][1] += deal_power(deal_power_in_pib, duration_days)
+        self.agent_info_df.loc[agent_df_idx, 'deal_renewed'] += deal_power_in_pib
+        self.agent_info_df.loc[agent_df_idx, 'deal_renewed_duration'] = duration_days
+
+        self._account_pledge_repayment_FIL(date_in, duration_days, pledge_for_renewing, pledge_repayment_amount)
+
+    def renew_power(self, date_in, cc_power_in_pib, deal_power_in_pib, duration_days, pledge_for_renewing, pledge_repayment_amount):
+        """
+        In the Filecoin spec, only CC sectors are allowed to be renewed. However, in the simulation, we relax this constraint slightly and offer
+        two different methods of computing renewals:
+         1 - In the optimistic setting, renewals are computed for both QA and CC power. This is to capture the sentiment that as Deal sectors
+            expire, even though an explicit renewal is not made, it is in effect with more deals coming online, or the deal being renewed
+            through the normal channel of expire + re-onboard.
+        2 - In the conservative setting, renewals are only computed for CC sectors.  NOTE that this is not properly implemented yet, b/c
+            currently, the CC power is renewed.  However, the CC contains CC sectors & QA sectors (without the QA multiplier), so in effect
+            this is not as conservative as you might expect if ONLY CC sectors were indeed being renewed.
+        """
+        if self.model.renewals_setting == 'optimistic':
+            self.renew_power_optimistic(date_in, cc_power_in_pib, deal_power_in_pib, duration_days, pledge_for_renewing, pledge_repayment_amount)
+        elif self.model.renewals_setting == 'conservative':
+            self.renew_power_conservative(date_in, cc_power_in_pib, deal_power_in_pib, duration_days, pledge_for_renewing, pledge_repayment_amount)
 
     def _account_pledge_repayment_FIL(self, date_in, sector_duration_days, pledge_requested_FIL=0, pledge_repayment_FIL=0):
         df_idx = self.accounting_df[self.accounting_df['date'] == date_in].index[0]

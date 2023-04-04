@@ -2,7 +2,6 @@ from datetime import timedelta
 from .. import constants
 from .sp_agent import SPAgent
 from ..power import cc_power, deal_power
-from ..filecoin_model import apply_qa_multiplier
 
 import numpy as np
 import pandas as pd
@@ -29,7 +28,7 @@ class ROIAgent(SPAgent):
         self.roi_threshold = roi_threshold
         self.agent_optimism = agent_optimism
 
-        self.duration_vec_days = (np.asarray([12, 36, 60])*30).astype(np.int32)  # 1Y, 3Y, 5Y sectors are possible
+        self.duration_vec_days = np.asarray([365, 1095, 1825]).astype(np.int32)  # 1Y, 3Y, 5Y sectors are possible
 
         self.map_optimism_scales()
 
@@ -72,13 +71,13 @@ class ROIAgent(SPAgent):
         future_rewards_per_sector_estimate = self.forecast_day_rewards_per_sector(date_in, sector_duration)
         
         # get the cost per sector for the duration, which in this case is just borrowing costs
-        sector_duration_yrs = sector_duration / 360.0
+        sector_duration_yrs = sector_duration / 365.
         pledge_repayment_estimate = self.compute_repayment_amount_from_supply_discount_rate_model(date_in, prev_day_pledge_per_QAP, sector_duration_yrs)
         cost_per_sector_estimate = pledge_repayment_estimate - prev_day_pledge_per_QAP
         roi_estimate = (future_rewards_per_sector_estimate.sum() - cost_per_sector_estimate) / prev_day_pledge_per_QAP
         
         # annualize it so that we can have the same frame of reference when comparing different sector durations
-        duration_yr = sector_duration / 360.0
+        duration_yr = sector_duration / 365.
         if roi_estimate < -1:
             roi_estimate_annualized = self.roi_threshold - 1  # if ROI is too low, set it so that it doesn't onboard.
                                                               # otherwise, you would take an exponent of a negative number
@@ -103,32 +102,38 @@ class ROIAgent(SPAgent):
             
         max_roi_idx = np.argmax(roi_estimate_vec)
         best_duration = self.duration_vec_days[max_roi_idx]
-        best_duration_yrs = best_duration / 360.0
+        best_duration_yrs = best_duration / 365.
         if roi_estimate_vec[max_roi_idx] > self.roi_threshold:
             rb_to_onboard = min(self.max_daily_rb_onboard_pib, self.max_sealing_throughput_pib)
-            qa_to_onboard = apply_qa_multiplier(rb_to_onboard * self.fil_plus_rate)
+            qa_to_onboard = self.model.apply_qa_multiplier(rb_to_onboard * self.fil_plus_rate,
+                                                       fil_plus_multipler=constants.FIL_PLUS_MULTIPLER,
+                                                       date_in=self.current_date,
+                                                       sector_duration_days=self.sector_duration) + \
+                        rb_to_onboard * (1-self.fil_plus_rate)
             pledge_per_pib = self.model.estimate_pledge_for_qa_power(self.current_date, 1.0)
 
-            total_qa_onboarded = rb_to_onboard + qa_to_onboard
-            pledge_needed_for_onboarding = total_qa_onboarded * pledge_per_pib
+            pledge_needed_for_onboarding = qa_to_onboard * pledge_per_pib
             pledge_repayment_value_onboard = self.compute_repayment_amount_from_supply_discount_rate_model(self.current_date, 
                                                                                                         pledge_needed_for_onboarding, 
                                                                                                         best_duration_yrs)
 
-            self.onboard_power(self.current_date, rb_to_onboard, total_qa_onboarded, best_duration,
+            self.onboard_power(self.current_date, rb_to_onboard, qa_to_onboard, best_duration,
                                pledge_needed_for_onboarding, pledge_repayment_value_onboard)
 
-            # renew available power for the same duration
-            se_power_dict = self.get_se_power_at_date(self.current_date)
-            # only renew CC power
-            cc_power_to_renew = se_power_dict['se_cc_power'] * self.renewal_rate
-            pledge_needed_for_renewal = cc_power_to_renew * pledge_per_pib
-            pledge_repayment_value_renew = self.compute_repayment_amount_from_supply_discount_rate_model(self.current_date, 
-                                                                                                         pledge_needed_for_renewal, 
-                                                                                                         best_duration_yrs)
+            if self.renewal_rate > 0:
+                # renew available power for the same duration
+                se_power_dict = self.get_se_power_at_date(self.current_date)
+                # which aspects of power get renewed is dependent on the setting "renewals_setting" in the FilecoinModel object
+                cc_power_to_renew = se_power_dict['se_cc_power'] * self.renewal_rate
+                deal_power_to_renew = se_power_dict['se_deal_power'] * self.renewal_rate
 
-            self.renew_power(self.current_date, cc_power_to_renew, best_duration,
-                             pledge_needed_for_renewal, pledge_repayment_value_renew)
+                pledge_needed_for_renewal = (cc_power_to_renew + deal_power_to_renew) * pledge_per_pib
+                pledge_repayment_value_renew = self.compute_repayment_amount_from_supply_discount_rate_model(self.current_date, 
+                                                                                                            pledge_needed_for_renewal, 
+                                                                                                            best_duration_yrs)
+
+                self.renew_power(self.current_date, cc_power_to_renew, deal_power_to_renew, best_duration,
+                                pledge_needed_for_renewal, pledge_repayment_value_renew)
 
         super().step()
 
