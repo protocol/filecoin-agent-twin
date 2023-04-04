@@ -13,6 +13,18 @@ from agentfil.cfg.experiment_cfg import ExperimentCfg
 from agentfil.agents.npv_agent import NPVAgent
 
 class SDMBaselineExperiment(ExperimentCfg):
+    """
+    Notes for the experiment:
+     1 - We have two agents, FIL+ and CC agents.
+     2 - When we bootstrap the agents, they have the provided proportion of power split amongst the
+         historical FIL+ and CC sectors.
+     3 - Due to this historical seeding, and the 'optimistic' renewals setting which dictates that renewals
+         are allowed for FIL+ sectors to simulate the effect of FIL+ sectors getting onboarded at the same
+         general rate.
+     4 - This is not in the "true" spirit of a FIL+ agent, but a starting approximation.
+     5 - Once the simulation starts, the agents will be only FIL+ or CC agents. However, as noted above, renewals
+         are allowed for both agents.
+    """
     def __init__(self, 
                  max_sealing_throughput,
                  max_daily_onboard_rb_pib, renewal_rate,
@@ -20,14 +32,15 @@ class SDMBaselineExperiment(ExperimentCfg):
                  fil_supply_discount_rate,
                  filplus_agent_optimism, filplus_agent_discount_rate_yr_pct,
                  cc_agent_optimism, cc_agent_discount_rate_yr_pct):
-        
+        assert sum(agent_power_distribution) == 1.0, "agent_power_distribution must sum to 1.0"
+
         self.agent_types = [NPVAgent, NPVAgent]
         self.num_agents = len(self.agent_types)
         self.agent_kwargs = [
             {
                 'max_sealing_throughput': max_sealing_throughput,
                 'max_daily_rb_onboard_pib': max_daily_onboard_rb_pib,
-                'renewal_rate': 0,   # renewals are not allowed for deals, so the FIL+ agent doesn't renew any power
+                'renewal_rate': renewal_rate,   
                 'fil_plus_rate': 1,  # 100% FIL+ agent
                 'agent_optimism': filplus_agent_optimism,
                 'agent_discount_rate_yr_pct': filplus_agent_discount_rate_yr_pct,
@@ -39,6 +52,76 @@ class SDMBaselineExperiment(ExperimentCfg):
                 'fil_plus_rate': 0,  # a CC agent
                 'agent_optimism': cc_agent_optimism,
                 'agent_discount_rate_yr_pct': cc_agent_discount_rate_yr_pct,
+            },
+        ]
+        self.agent_power_distribution = agent_power_distribution
+
+        # external environment configuration
+        self.fil_supply_discount_rate = fil_supply_discount_rate
+
+    def get_agent_cfg(self) -> Tuple[List, List, List]:
+        return self.agent_types, self.agent_kwargs, self.agent_power_distribution
+    
+    def get_fil_supply_discount_rate_process_cfg(self):
+        fil_supply_discount_rate_process_kwargs = {
+            'min_discount_rate_pct':self.fil_supply_discount_rate-1, 
+            'max_discount_rate_pct':self.fil_supply_discount_rate+1,
+            'start_discount_rate_pct':self.fil_supply_discount_rate,
+            'behavior':'constant',
+            'seed':1234
+        }
+        return fil_supply_discount_rate_process_kwargs
+    
+class SDMControlExperiment(ExperimentCfg):
+    """
+    Notes for the experiment:
+     1 - We have three agents, FIL+, NormalCC and RiskAverseCC agents.
+     2 - When we bootstrap the agents, they have the provided proportion of power split amongst the
+         historical FIL+ and CC sectors.
+     3 - Due to this historical seeding, and the 'optimistic' renewals setting which dictates that renewals
+         are allowed for FIL+ sectors to simulate the effect of FIL+ sectors getting onboarded at the same
+         general rate.
+     4 - This is not in the "true" spirit of a FIL+ agent, but a starting approximation.
+     5 - Once the simulation starts, the agents will be only FIL+ or CC agents. However, as noted above, renewals
+         are allowed for both agents.
+     6 - Normal and Risk Aversion is controlled by the agent's internal discount rate
+    """
+    def __init__(self, 
+                 max_sealing_throughput,
+                 max_daily_onboard_rb_pib, renewal_rate,
+                 agent_power_distribution,
+                 fil_supply_discount_rate,
+                 filplus_agent_optimism, filplus_agent_discount_rate_yr_pct,
+                 normal_cc_agent_optimism, normal_cc_agent_discount_rate_yr_pct,
+                 riskaverse_cc_agent_optimism, riskaverse_cc_agent_discount_rate_yr_pct):
+        assert sum(agent_power_distribution) == 1.0, "agent_power_distribution must sum to 1.0"
+
+        self.agent_types = [NPVAgent, NPVAgent, NPVAgent]
+        self.num_agents = len(self.agent_types)
+        self.agent_kwargs = [
+            {
+                'max_sealing_throughput': max_sealing_throughput,
+                'max_daily_rb_onboard_pib': max_daily_onboard_rb_pib,
+                'renewal_rate': renewal_rate,   
+                'fil_plus_rate': 1,  # 100% FIL+ agent
+                'agent_optimism': filplus_agent_optimism,
+                'agent_discount_rate_yr_pct': filplus_agent_discount_rate_yr_pct,
+            },
+            {
+                'max_sealing_throughput': max_sealing_throughput,
+                'max_daily_rb_onboard_pib': max_daily_onboard_rb_pib,
+                'renewal_rate': renewal_rate,
+                'fil_plus_rate': 0,  # a CC agent
+                'agent_optimism': normal_cc_agent_optimism,
+                'agent_discount_rate_yr_pct': normal_cc_agent_discount_rate_yr_pct,
+            },
+            {
+                'max_sealing_throughput': max_sealing_throughput,
+                'max_daily_rb_onboard_pib': max_daily_onboard_rb_pib,
+                'renewal_rate': renewal_rate,
+                'fil_plus_rate': 0,  # a CC agent
+                'agent_optimism': riskaverse_cc_agent_optimism,
+                'agent_discount_rate_yr_pct': riskaverse_cc_agent_discount_rate_yr_pct,
             },
         ]
         self.agent_power_distribution = agent_power_distribution

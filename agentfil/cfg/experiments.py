@@ -1,8 +1,8 @@
 import numpy as np
-import constants as C
 
 from datetime import date
 
+from .. import constants as C
 from ..agents import dca_agent, basic_rational_agent, roi_agent, npv_agent
 from . import exp_sdm
 
@@ -257,7 +257,7 @@ for steady_state_total_network_power in steady_state_total_network_power_vec:
 
 """
 Experiments that relate to the evaluating the SDM policy.
-TODO: describe the experiment in more detail here.
+These configurations are for the control experiment.
 """
 max_daily_rb_onboard_pib_vec = [6, 10, 25]
 renewal_rate_vec = [.4, .6, .8]
@@ -286,7 +286,7 @@ for max_daily_rb_onboard_pib in max_daily_rb_onboard_pib_vec:
 
                                     filecoin_model_kwargs = exp_sdm.filecoin_model_kwargs(sdm_enable_date, sdm_slope)
 
-                                    name = 'SDM=%0.03f,FILP=%d,%d,%0.02f,CC=%d,%d,%0.02f,Onboard=%d,RR=%0.02f,DR=%d' % \
+                                    name = 'SDMControl=%0.03f,FILP=%d,%d,%0.02f,CC=%d,%d,%0.02f,Onboard=%d,RR=%0.02f,DR=%d' % \
                                         (
                                             sdm_slope,
                                             filplus_agent_optimism, filplus_agent_discount_rate, agent_power_distribution[0],
@@ -310,3 +310,81 @@ for max_daily_rb_onboard_pib in max_daily_rb_onboard_pib_vec:
                                         },
                                         'filecoin_model_kwargs': filecoin_model_kwargs,
                                     }
+
+"""
+Experiments that relate to the evaluating the SDM policy.
+These configurations are for the control experiment.
+"""
+max_daily_rb_onboard_pib_vec = [6, 10, 25]
+renewal_rate_vec = [.4, .6, .8]
+# first # represents the FIL+ agent power, second # represents the % of the remaining that is 
+# the "normal" CC agent, the remainder would be the risk averse agent
+agent_power_split_vec = [
+    [0.3, 0.7],
+    [0.3, 0.8],
+    [0.3, 0.9],
+    [0.5, 0.7],
+    [0.5, 0.8],
+    [0.5, 0.9],
+    [0.7, 0.7],
+    [0.7, 0.8],
+    [0.7, 0.9],
+]
+fil_supply_discount_rate_vec = [20, 25, 30]
+filplus_agent_optimism_vec = [4]
+filplus_agent_discount_rate_yr_pct_vec = [50]  # a representation of the agent's risk
+normal_cc_agent_optimism_vec = [4]
+normal_cc_agent_discount_rate_yr_pct_vec = [50]       # a representation of the agent's risk
+risk_averse_cc_agent_optimism_vec = [4]
+risk_averse_cc_agent_discount_rate_yr_pct_vec = [100]       # a representation of the agent's risk
+sdm_enable_date = date(2023, 10, 15) # ~6 months after the start of the simulation
+sdm_slope_vec = [1.0, 0.285]
+
+for max_daily_rb_onboard_pib in max_daily_rb_onboard_pib_vec:
+    for renewal_rate in renewal_rate_vec:
+        for agent_power_split in agent_power_split_vec:
+            filp_agent_power = agent_power_split[0]
+            normal_cc_agent_power = (1-filp_agent_power) * agent_power_split[1]
+            risk_averse_agent_power = (1-filp_agent_power) * (1-agent_power_split[1])
+            agent_power_distribution = [filp_agent_power, normal_cc_agent_power, risk_averse_agent_power]
+            for fil_supply_discount_rate in fil_supply_discount_rate_vec:
+                for filplus_agent_optimism in filplus_agent_optimism_vec:
+                    for filplus_agent_discount_rate in filplus_agent_discount_rate_yr_pct_vec:
+                        for normal_cc_agent_optimism in normal_cc_agent_optimism_vec:
+                            for normal_cc_agent_discount_rate in normal_cc_agent_discount_rate_yr_pct_vec:
+                                for risk_averse_cc_agent_optimism in risk_averse_cc_agent_optimism_vec:
+                                    for risk_averse_cc_agent_discount_rate in risk_averse_cc_agent_discount_rate_yr_pct_vec:
+                                        for sdm_slope in sdm_slope_vec:
+
+                                            filecoin_model_kwargs = exp_sdm.filecoin_model_kwargs(sdm_enable_date, sdm_slope)
+
+                                            name = 'SDMExperiment=%0.03f,FILP=%d,%d,%0.02f,NormalCC=%d,%d,RACC=%d,%d,CCSplit=%0.02f,Onboard=%d,RR=%0.02f,DR=%d' % \
+                                                (
+                                                    sdm_slope,
+                                                    filplus_agent_optimism, filplus_agent_discount_rate, agent_power_distribution[0],
+                                                    normal_cc_agent_optimism, normal_cc_agent_discount_rate, 
+                                                    risk_averse_cc_agent_optimism, risk_averse_cc_agent_discount_rate,
+                                                    agent_power_split[1], 
+                                                    max_daily_rb_onboard_pib, 
+                                                    renewal_rate, 
+                                                    fil_supply_discount_rate,
+                                                )
+                                            name2experiment[name] = {
+                                                'module_name': 'agentfil.cfg.exp_sdm',
+                                                'instantiator': 'SDMControlExperiment',
+                                                'instantiator_kwargs': {
+                                                    'max_sealing_throughput': C.DEFAULT_MAX_SEALING_THROUGHPUT_PIB,
+                                                    'max_daily_onboard_rb_pib': max_daily_rb_onboard_pib,
+                                                    'renewal_rate': renewal_rate,
+                                                    'agent_power_distribution': agent_power_distribution,
+                                                    'fil_supply_discount_rate': fil_supply_discount_rate,
+                                                    'filplus_agent_optimism': filplus_agent_optimism,
+                                                    'filplus_agent_discount_rate_yr_pct': filplus_agent_discount_rate,
+                                                    'normal_cc_agent_optimism': normal_cc_agent_optimism,
+                                                    'normal_cc_agent_discount_rate_yr_pct': normal_cc_agent_discount_rate,
+                                                    'riskaverse_cc_agent_optimism': risk_averse_cc_agent_optimism,
+                                                    'riskaverse_cc_agent_discount_rate_yr_pct': risk_averse_cc_agent_discount_rate,
+
+                                                },
+                                                'filecoin_model_kwargs': filecoin_model_kwargs,
+                                            }

@@ -1,0 +1,18 @@
+# Baseline SDM Experiments
+SDMControl=0.285,FILP=4,50,0.30,CC=4,50,0.70,Onboard=6,RR=0.60,DR=20
+SDMControl=0.285,FILP=4,50,0.50,CC=4,50,0.50,Onboard=6,RR=0.60,DR=20
+SDMControl=0.285,FILP=4,50,0.70,CC=4,50,0.30,Onboard=6,RR=0.60,DR=20
+SDMControl=0.285,FILP=4,50,0.30,CC=4,50,0.70,Onboard=6,RR=0.60,DR=30
+SDMControl=0.285,FILP=4,50,0.50,CC=4,50,0.50,Onboard=6,RR=0.60,DR=30
+SDMControl=0.285,FILP=4,50,0.70,CC=4,50,0.30,Onboard=6,RR=0.60,DR=30
+
+# Control SDM Experiments
+SDMExperiment=0.285,FILP=4,50,0.30,NormalCC=4,50,RACC=4,100,CCSplit=0.70,Onboard=6,RR=0.60,DR=20
+SDMExperiment=0.285,FILP=4,50,0.30,NormalCC=4,50,RACC=4,100,CCSplit=0.80,Onboard=6,RR=0.60,DR=20
+SDMExperiment=0.285,FILP=4,50,0.30,NormalCC=4,50,RACC=4,100,CCSplit=0.90,Onboard=6,RR=0.60,DR=20
+SDMExperiment=0.285,FILP=4,50,0.50,NormalCC=4,50,RACC=4,100,CCSplit=0.70,Onboard=6,RR=0.60,DR=20
+SDMExperiment=0.285,FILP=4,50,0.50,NormalCC=4,50,RACC=4,100,CCSplit=0.80,Onboard=6,RR=0.60,DR=20
+SDMExperiment=0.285,FILP=4,50,0.50,NormalCC=4,50,RACC=4,100,CCSplit=0.90,Onboard=6,RR=0.60,DR=20
+SDMExperiment=0.285,FILP=4,50,0.70,NormalCC=4,50,RACC=4,100,CCSplit=0.70,Onboard=6,RR=0.60,DR=20
+SDMExperiment=0.285,FILP=4,50,0.70,NormalCC=4,50,RACC=4,100,CCSplit=0.80,Onboard=6,RR=0.60,DR=20
+SDMExperiment=0.285,FILP=4,50,0.70,NormalCC=4,50,RACC=4,100,CCSplit=0.90,Onboard=6,RR=0.60,DR=20
