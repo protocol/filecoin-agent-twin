@@ -1,7 +1,10 @@
 import numpy as np
 import constants as C
 
-from ..agents import dca_agent, basic_rational_agent
+from datetime import date
+
+from ..agents import dca_agent, basic_rational_agent, roi_agent, npv_agent
+from . import exp_sdm
 
 """
 Add experiments to this file so that they can be run from the command line.
@@ -162,69 +165,148 @@ max_daily_rb_onboard_pib_vec = [5, 10, 25]
 renewal_rate_vec = [.4, .6, .8]
 fil_plus_rate_vec = [.4, .6, .8]
 sector_duration_vec = [360, 360*3]
-steady_state_total_network_power_vec = [.85, .90, .95]
+steady_state_total_network_power_vec = [.80, .85, .90, .95]
+rational_agents_scaling_factor_vec = [.25, .50, .75, 1.0]  # scaling factor which controls the max-sealing-throughput & onboarding rate
 fil_supply_discount_rate_vec = [20, 25, 30]
+rational_agent_type_vec = [
+    ('BasicRational', basic_rational_agent.BasicRationalAgent),
+    ('ROIAgent', roi_agent.ROIAgent),
+    ('NPVAgent', npv_agent.NPVAgent),
+]
+base_rational_agent_kwargs = {
+    'renewal_rate': renewal_rate,
+    'fil_plus_rate': fil_plus_rate,
+}
 
 for steady_state_total_network_power in steady_state_total_network_power_vec:
-    for max_daily_rb_onboard_pib in max_daily_rb_onboard_pib_vec:
-        for renewal_rate in renewal_rate_vec:
-            for fil_plus_rate in fil_plus_rate_vec:
-                for sector_duration in sector_duration_vec:
-                    for fil_supply_discount_rate in fil_supply_discount_rate_vec:
-                        agent_types = [
-                            dca_agent.DCAAgent,
-                            basic_rational_agent.BasicRationalAgent
-                        ]
-                        # 1 - since we are adding rational agents on top of steady-state, we don't scale
-                        #     their max sealing throughput. The assumption is that the agent is already being
-                        #     rational, so their computing capabilities are high and they have a high sealing throughput.
-                        #     This can be easily changed if we want to explore the impact of rational agents with
-                        #     less sealing throughput, can their relative gains be higher since they act rationally??
-                        # 2 - we also don't scale the agents daily onboarding. It's easy to justify both sides of the 
-                        #     coin here, so it might be useful to try it with and without some scaling.
-                        agent_kwargs = [
-                            {
-                                'max_sealing_throughput':C.DEFAULT_MAX_SEALING_THROUGHPUT_PIB,
-                                'max_daily_rb_onboard_pib': max_daily_rb_onboard_pib,
-                                'renewal_rate': renewal_rate,
-                                'fil_plus_rate': fil_plus_rate,
-                                'sector_duration': sector_duration,
-                            },
-                            {
-                                'max_sealing_throughput':C.DEFAULT_MAX_SEALING_THROUGHPUT_PIB,
-                                'max_daily_rb_onboard_pib': max_daily_rb_onboard_pib,
-                                'renewal_rate': renewal_rate,
-                                'fil_plus_rate': fil_plus_rate,
-                                'sector_duration': sector_duration,
-                                'discount_rate_floor_pct': min(fil_supply_discount_rate_vec)
-                            }
-                        ]
-                        dca_agent_power_frac = steady_state_total_network_power
-                        basic_rational_agent_power_frac = 1 - steady_state_total_network_power
-                        agent_power_distribution = [dca_agent_power_frac, basic_rational_agent_power_frac]
-                        
-                        name = 'DCA=%0.02f-BasicRational=%0.02f-ConstFilSupplyDiscountRate=%d-MaxDailyOnboard=%0.02f,%0.02f-RenewalRate=%0.02f,%0.02f-FilPlusRate=%0.02f,%0.02f-SectorDuration=%d,%d' % \
-                            (dca_agent_power_frac, 
-                             basic_rational_agent_power_frac, 
-                             fil_supply_discount_rate, 
-                             max_daily_rb_onboard_pib, 
-                             max_daily_rb_onboard_pib, 
-                             renewal_rate, 
-                             renewal_rate, 
-                             fil_plus_rate, 
-                             fil_plus_rate, 
-                             sector_duration,
-                             sector_duration
-                             )
-                        name2experiment[name] = {
-                            'module_name': 'agentfil.cfg.exp_hybrid_agents',
-                            'instantiator': 'ExpHybridConstantDiscountRate',
-                            'instantiator_kwargs': {
-                                'agent_types': agent_types,
-                                'agent_kwargs': agent_kwargs,
-                                'agent_power_distribution': agent_power_distribution,
-                                'fil_supply_discount_rate': fil_supply_discount_rate,
-                            },
-                            'filecoin_model_kwargs': {},
-                        }
+    for rational_agents_scaling_factor in rational_agents_scaling_factor_vec:
+        for max_daily_rb_onboard_pib in max_daily_rb_onboard_pib_vec:
+            for renewal_rate in renewal_rate_vec:
+                for fil_plus_rate in fil_plus_rate_vec:
+                    for sector_duration in sector_duration_vec:
+                        for fil_supply_discount_rate in fil_supply_discount_rate_vec:
+                            for ii, rational_agent_type_info in enumerate(rational_agent_type_vec):
+                                rational_agent_str_base = rational_agent_type_info[0]
+                                rational_agent_cls = rational_agent_type_info[1]
 
+                                agent_types = [
+                                    dca_agent.DCAAgent,
+                                    rational_agent_cls
+                                ]
+
+                                rational_agent_kwargs = base_rational_agent_kwargs.copy()
+                                rational_agent_kwargs['max_sealing_throughput'] = C.DEFAULT_MAX_SEALING_THROUGHPUT_PIB * rational_agents_scaling_factor
+                                rational_agent_kwargs['max_daily_rb_onboard_pib'] = max_daily_rb_onboard_pib * rational_agents_scaling_factor
+                                if rational_agent_str_base == 'BasicRational':
+                                    rational_agent_kwargs['sector_duration'] = sector_duration
+                                    rational_agent_kwargs['discount_rate_floor_pct'] = min(fil_supply_discount_rate_vec)
+                                    rational_agent_str = '%s=%d,%d' % (rational_agent_str_base, sector_duration, min(fil_supply_discount_rate_vec))
+                                elif rational_agent_str_base == 'ROIAgent':
+                                    rational_agent_kwargs['agent_optimism'] = 4
+                                    rational_agent_kwargs['roi_threshold'] = 0.1
+                                    rational_agent_str = '%s=%d,%0.02f' % (rational_agent_str_base, 4, 0.1)
+                                elif rational_agent_str_base == 'NPVAgent':
+                                    rational_agent_kwargs['agent_optimism'] = 4
+                                    rational_agent_kwargs['agent_discount_rate_yr_pct'] = 50
+                                    rational_agent_str = '%s=%d,%d' % (rational_agent_str_base, 4, 50)
+                                
+                                # scale the rational agent by the desired scaling factor for max sealing throughput and onboarding rate
+                                # don't scale the renewal rate b/c that would already be proportioned by the agent power distribution
+                                # don't scale the fil_plus_rate b/c that is accounted for when scaling max-sealing-throughput and onboarding-rate
+                                agent_kwargs = [
+                                    # the DCA agent
+                                    {
+                                        'max_sealing_throughput':C.DEFAULT_MAX_SEALING_THROUGHPUT_PIB,
+                                        'max_daily_rb_onboard_pib': max_daily_rb_onboard_pib,
+                                        'renewal_rate': renewal_rate,
+                                        'fil_plus_rate': fil_plus_rate,
+                                        'sector_duration': sector_duration,
+                                    },
+                                    # the rational agent
+                                    rational_agent_kwargs,
+                                ]
+                                dca_agent_power_frac = steady_state_total_network_power
+                                basic_rational_agent_power_frac = 1 - steady_state_total_network_power
+                                agent_power_distribution = [dca_agent_power_frac, basic_rational_agent_power_frac]
+                                
+                                name = 'DCA=%0.02f,%d-%s=%0.02f,%0.02f-ConstFilSupplyDiscountRate=%d-MaxDailyOnboard=%0.02f,%0.02f-RenewalRate=%0.02f,%0.02f-FilPlusRate=%0.02f,%0.02f' % \
+                                    (dca_agent_power_frac, 
+                                    sector_duration,
+                                    rational_agent_str,
+                                    basic_rational_agent_power_frac, 
+                                    rational_agents_scaling_factor,
+                                    fil_supply_discount_rate, 
+                                    max_daily_rb_onboard_pib, 
+                                    max_daily_rb_onboard_pib, 
+                                    renewal_rate, 
+                                    renewal_rate, 
+                                    fil_plus_rate, 
+                                    fil_plus_rate, 
+                                    )
+                                name2experiment[name] = {
+                                    'module_name': 'agentfil.cfg.exp_hybrid_agents',
+                                    'instantiator': 'ExpHybridConstantDiscountRate',
+                                    'instantiator_kwargs': {
+                                        'agent_types': agent_types,
+                                        'agent_kwargs': agent_kwargs,
+                                        'agent_power_distribution': agent_power_distribution,
+                                        'fil_supply_discount_rate': fil_supply_discount_rate,
+                                    },
+                                    'filecoin_model_kwargs': {},
+                                }
+
+"""
+Experiments that relate to the evaluating the SDM policy.
+TODO: describe the experiment in more detail here.
+"""
+max_daily_rb_onboard_pib_vec = [6, 10, 25]
+renewal_rate_vec = [.4, .6, .8]
+agent_power_distribution_vec = [
+    [0.3, 0.7],
+    [0.5, 0.5],
+    [0.7, 0.3],
+]
+fil_supply_discount_rate_vec = [20, 25, 30]
+filplus_agent_optimism_vec = [4]
+filplus_agent_discount_rate_yr_pct_vec = [50]  # a representation of the agent's risk
+cc_agent_optimism_vec = [4]
+cc_agent_discount_rate_yr_pct_vec = [50]       # a representation of the agent's risk
+sdm_enable_date = date(2023, 10, 15) # ~6 months after the start of the simulation
+sdm_slope_vec = [1.0, 0.285]
+
+for max_daily_rb_onboard_pib in max_daily_rb_onboard_pib_vec:
+    for renewal_rate in renewal_rate_vec:
+        for agent_power_distribution in agent_power_distribution_vec:
+            for fil_supply_discount_rate in fil_supply_discount_rate_vec:
+                for filplus_agent_optimism in filplus_agent_optimism_vec:
+                    for filplus_agent_discount_rate in filplus_agent_discount_rate_yr_pct_vec:
+                        for cc_agent_optimism in cc_agent_optimism_vec:
+                            for cc_agent_discount_rate in cc_agent_discount_rate_yr_pct_vec:
+                                for sdm_slope in sdm_slope_vec:
+
+                                    filecoin_model_kwargs = exp_sdm.filecoin_model_kwargs(sdm_enable_date, sdm_slope)
+
+                                    name = 'SDM=%0.03f,FILP=%d,%d,%0.02f,CC=%d,%d,%0.02f,Onboard=%d,RR=%0.02f,DR=%d' % \
+                                        (
+                                            sdm_slope,
+                                            filplus_agent_optimism, filplus_agent_discount_rate, agent_power_distribution[0],
+                                            cc_agent_optimism, cc_agent_discount_rate, agent_power_distribution[1],
+                                            max_daily_rb_onboard_pib, renewal_rate, fil_supply_discount_rate,
+                                         )
+                                    name2experiment[name] = {
+                                        'module_name': 'agentfil.cfg.exp_sdm',
+                                        'instantiator': 'SDMBaselineExperiment',
+                                        'instantiator_kwargs': {
+                                            'max_sealing_throughput': C.DEFAULT_MAX_SEALING_THROUGHPUT_PIB,
+                                            'max_daily_onboard_rb_pib': max_daily_rb_onboard_pib,
+                                            'renewal_rate': renewal_rate,
+                                            'agent_power_distribution': agent_power_distribution,
+                                            'fil_supply_discount_rate': fil_supply_discount_rate,
+                                            'filplus_agent_optimism': filplus_agent_optimism,
+                                            'filplus_agent_discount_rate_yr_pct': filplus_agent_discount_rate,
+                                            'cc_agent_optimism': cc_agent_optimism,
+                                            'cc_agent_discount_rate_yr_pct': cc_agent_discount_rate,
+
+                                        },
+                                        'filecoin_model_kwargs': filecoin_model_kwargs,
+                                    }
