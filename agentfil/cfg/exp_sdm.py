@@ -1,11 +1,14 @@
+#!/usr/bin/env python3
+
 """
 We have two experiments here
 Baseline - FIL+ and CC NPV agents, with a proportional power distribution.
 Experiment - FIL+, CC, and Risk Averse CC NPV agents, with a proportional power distribution.
   As we sweep the percentage of risk-averse NPV agents, what happens to the network KPI?
 """
-
+import argparse
 from typing import Dict, Tuple, List
+from datetime import date
 
 import numpy as np
 
@@ -27,19 +30,20 @@ class SDMBaselineExperiment(ExperimentCfg):
     """
     def __init__(self, 
                  max_sealing_throughput,
-                 max_daily_onboard_rb_pib, renewal_rate,
+                 total_daily_onboard_rb_pib, renewal_rate,
                  agent_power_distribution,
                  fil_supply_discount_rate,
                  filplus_agent_optimism, filplus_agent_discount_rate_yr_pct,
                  cc_agent_optimism, cc_agent_discount_rate_yr_pct):
-        assert sum(agent_power_distribution) == 1.0, "agent_power_distribution must sum to 1.0"
+        agent_power_distribution = np.asarray(agent_power_distribution)
+        agent_power_distribution = agent_power_distribution / np.sum(agent_power_distribution)  # enforce it to sum to 1
 
         self.agent_types = [NPVAgent, NPVAgent]
         self.num_agents = len(self.agent_types)
         self.agent_kwargs = [
             {
                 'max_sealing_throughput': max_sealing_throughput,
-                'max_daily_rb_onboard_pib': max_daily_onboard_rb_pib,
+                'max_daily_rb_onboard_pib': total_daily_onboard_rb_pib * agent_power_distribution[0],
                 'renewal_rate': renewal_rate,   
                 'fil_plus_rate': 1,  # 100% FIL+ agent
                 'agent_optimism': filplus_agent_optimism,
@@ -47,7 +51,7 @@ class SDMBaselineExperiment(ExperimentCfg):
             },
             {
                 'max_sealing_throughput': max_sealing_throughput,
-                'max_daily_rb_onboard_pib': max_daily_onboard_rb_pib,
+                'max_daily_rb_onboard_pib': total_daily_onboard_rb_pib * agent_power_distribution[0],
                 'renewal_rate': renewal_rate,
                 'fil_plus_rate': 0,  # a CC agent
                 'agent_optimism': cc_agent_optimism,
@@ -72,7 +76,7 @@ class SDMBaselineExperiment(ExperimentCfg):
         }
         return fil_supply_discount_rate_process_kwargs
     
-class SDMControlExperiment(ExperimentCfg):
+class SDMExperiment(ExperimentCfg):
     """
     Notes for the experiment:
      1 - We have three agents, FIL+, NormalCC and RiskAverseCC agents.
@@ -88,20 +92,21 @@ class SDMControlExperiment(ExperimentCfg):
     """
     def __init__(self, 
                  max_sealing_throughput,
-                 max_daily_onboard_rb_pib, renewal_rate,
+                 total_daily_onboard_rb_pib, renewal_rate,
                  agent_power_distribution,
                  fil_supply_discount_rate,
                  filplus_agent_optimism, filplus_agent_discount_rate_yr_pct,
                  normal_cc_agent_optimism, normal_cc_agent_discount_rate_yr_pct,
                  riskaverse_cc_agent_optimism, riskaverse_cc_agent_discount_rate_yr_pct):
-        assert sum(agent_power_distribution) == 1.0, "agent_power_distribution must sum to 1.0"
-
+        agent_power_distribution = np.asarray(agent_power_distribution)
+        agent_power_distribution = agent_power_distribution / np.sum(agent_power_distribution)  # enforce it to sum to 1
+        
         self.agent_types = [NPVAgent, NPVAgent, NPVAgent]
         self.num_agents = len(self.agent_types)
         self.agent_kwargs = [
             {
                 'max_sealing_throughput': max_sealing_throughput,
-                'max_daily_rb_onboard_pib': max_daily_onboard_rb_pib,
+                'max_daily_rb_onboard_pib': total_daily_onboard_rb_pib * agent_power_distribution[0],
                 'renewal_rate': renewal_rate,   
                 'fil_plus_rate': 1,  # 100% FIL+ agent
                 'agent_optimism': filplus_agent_optimism,
@@ -109,7 +114,7 @@ class SDMControlExperiment(ExperimentCfg):
             },
             {
                 'max_sealing_throughput': max_sealing_throughput,
-                'max_daily_rb_onboard_pib': max_daily_onboard_rb_pib,
+                'max_daily_rb_onboard_pib': total_daily_onboard_rb_pib * agent_power_distribution[1],
                 'renewal_rate': renewal_rate,
                 'fil_plus_rate': 0,  # a CC agent
                 'agent_optimism': normal_cc_agent_optimism,
@@ -117,7 +122,7 @@ class SDMControlExperiment(ExperimentCfg):
             },
             {
                 'max_sealing_throughput': max_sealing_throughput,
-                'max_daily_rb_onboard_pib': max_daily_onboard_rb_pib,
+                'max_daily_rb_onboard_pib': total_daily_onboard_rb_pib * agent_power_distribution[2],
                 'renewal_rate': renewal_rate,
                 'fil_plus_rate': 0,  # a CC agent
                 'agent_optimism': riskaverse_cc_agent_optimism,
@@ -174,3 +179,79 @@ def filecoin_model_kwargs(sdm_enable_date, sdm_slope):
         'sdm': sdm_fn,
         'sdm_kwargs': sdm_fn_kwargs,
     }
+
+if __name__ == '__main__':
+    # Generate configurations for the SDM experiments and write them to a config file
+    # that can be used by the experiment runner
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--output_fp', type=str, default='sdm_experiments.txt')
+    args = parser.parse_args()
+
+    output_fp = args.output_fp
+    print('Writing to {}'.format(output_fp))
+
+    experiment_names = []
+    
+    # Generate baseline experiments
+    total_daily_rb_onboard_pib_vec = [6]
+    renewal_rate_vec = [.6]
+    agent_power_distribution_vec = [
+        [0.3, 0.7],
+        [0.5, 0.5],
+        [0.7, 0.3],
+    ]
+    cc_split_vec = [0.7, 0.8, 0.9]  # the % of total CC agents which are risk averse
+
+    fil_supply_discount_rate_vec = [10, 20, 30]
+    filplus_agent_optimism_vec = [4]
+    normal_cc_agent_optimism_vec = [4]
+    risk_averse_cc_agent_optimism_vec = [4]
+    
+    filplus_agent_discount_rate_yr_pct_vec = [25, 50]
+    normal_cc_agent_discount_rate_multiplier_vec = [1]
+    risk_averse_cc_agent_discount_rate_multiplier_vec = [2, 4]
+
+    sdm_enable_date = date(2023, 10, 15) # ~6 months after the start of the simulation
+    sdm_slope_vec = [0.285, 1.0]
+
+    for total_daily_rb_onboard_pib in total_daily_rb_onboard_pib_vec:
+        for renewal_rate in renewal_rate_vec:
+            for agent_power_distribution in agent_power_distribution_vec:
+                for fil_supply_discount_rate in fil_supply_discount_rate_vec:
+                    for filplus_agent_optimism in filplus_agent_optimism_vec:
+                        for filplus_agent_discount_rate in filplus_agent_discount_rate_yr_pct_vec:
+                            for normal_cc_agent_optimism in normal_cc_agent_optimism_vec:
+                                for normal_cc_agent_discount_rate_multiplier in normal_cc_agent_discount_rate_multiplier_vec:
+                                    normal_cc_agent_discount_rate = normal_cc_agent_discount_rate_multiplier * filplus_agent_discount_rate
+                                    for sdm_slope in sdm_slope_vec:
+                                        # baseline experiment
+                                        name = 'SDMBaseline=%0.03f,FILP=%d,%d,%0.02f,CC=%d,%d,Onboard=%0.02f,RR=%0.02f,DR=%d' % \
+                                            (
+                                                sdm_slope,
+                                                filplus_agent_optimism, filplus_agent_discount_rate, agent_power_distribution[0],
+                                                normal_cc_agent_optimism, normal_cc_agent_discount_rate, 
+                                                total_daily_rb_onboard_pib, renewal_rate, fil_supply_discount_rate,
+                                            )
+                                        experiment_names.append(name)
+
+                                        # test experiments
+                                        for cc_split in cc_split_vec:
+                                            for risk_averse_cc_agent_optimism in risk_averse_cc_agent_optimism_vec:
+                                                for risk_averse_cc_agent_discount_rate_multiplier in risk_averse_cc_agent_discount_rate_multiplier_vec:
+                                                    risk_averse_cc_agent_discount_rate = risk_averse_cc_agent_discount_rate_multiplier * filplus_agent_discount_rate
+                                                    name = 'SDMExperiment=%0.03f,FILP=%d,%d,%0.02f,NormalCC=%d,%d,RACC=%d,%d,CCSplit=%0.02f,Onboard=%0.02f,RR=%0.02f,DR=%d' % \
+                                                    (
+                                                        sdm_slope,
+                                                        filplus_agent_optimism, filplus_agent_discount_rate, agent_power_distribution[0],
+                                                        normal_cc_agent_optimism, normal_cc_agent_discount_rate, 
+                                                        risk_averse_cc_agent_optimism, risk_averse_cc_agent_discount_rate,
+                                                        cc_split, 
+                                                        total_daily_rb_onboard_pib, 
+                                                        renewal_rate, 
+                                                        fil_supply_discount_rate,
+                                                    )
+                                                    experiment_names.append(name)
+
+    with open(output_fp, 'w')  as f:
+        for name in experiment_names:
+            f.write('%s\n' % name)

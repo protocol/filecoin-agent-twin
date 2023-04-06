@@ -49,6 +49,8 @@ experiment_runner() {
         --output-dir $output_dir \
         --start-date $start_date \
         --end-date $end_date >> $output_dir/log.txt 2>&1
+
+    echo "Finished experiment $name" >> $output_dir/log.txt
 }
 export start_date end_date experiment_names experiment_output_dirs
 export -f experiment_runner 
