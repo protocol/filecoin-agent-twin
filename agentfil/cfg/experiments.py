@@ -326,11 +326,11 @@ agent_power_distribution_vec = [
 cc_split_vec = [0.7, 0.8, 0.9]
 
 fil_supply_discount_rate_vec = [5, 10, 15, 20, 25, 30]
-filplus_agent_optimism_vec = [4]
-normal_cc_agent_optimism_vec = [4]
-risk_averse_cc_agent_optimism_vec = [4]
+filplus_agent_optimism_vec = [3,4,5]
+normal_cc_agent_optimism_vec = [3,4,5]
+risk_averse_cc_agent_optimism_vec = [3,4,5]
 
-base_agent_discount_rate_yr_pct_vec = [25, 50]
+filplus_agent_discount_rate_yr_pct_vec = [25, 50, 75]
 normal_cc_agent_discount_rate_multiplier_vec = [1, 2]
 risk_averse_cc_agent_discount_rate_multiplier_vec = [2, 3, 4, 5]
 sdm_enable_date = date(2023, 10, 15) # ~6 months after the start of the simulation
