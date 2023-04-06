@@ -219,10 +219,11 @@ if __name__ == '__main__':
             for agent_power_distribution in agent_power_distribution_vec:
                 for fil_supply_discount_rate in fil_supply_discount_rate_vec:
                     for filplus_agent_optimism in filplus_agent_optimism_vec:
-                        for filplus_agent_discount_rate in filplus_agent_discount_rate_yr_pct_vec:
+                        for base_agent_discount_rate_yr_pct in filplus_agent_discount_rate_yr_pct_vec:
+                            filplus_agent_discount_rate = base_agent_discount_rate_yr_pct
                             for normal_cc_agent_optimism in normal_cc_agent_optimism_vec:
                                 for normal_cc_agent_discount_rate_multiplier in normal_cc_agent_discount_rate_multiplier_vec:
-                                    normal_cc_agent_discount_rate = normal_cc_agent_discount_rate_multiplier * filplus_agent_discount_rate
+                                    normal_cc_agent_discount_rate = normal_cc_agent_discount_rate_multiplier * base_agent_discount_rate_yr_pct
                                     for sdm_slope in sdm_slope_vec:
                                         # baseline experiment
                                         name = 'SDMBaseline=%0.03f,FILP=%d,%d,%0.02f,CC=%d,%d,Onboard=%0.02f,RR=%0.02f,DR=%d' % \
@@ -238,7 +239,7 @@ if __name__ == '__main__':
                                         for cc_split in cc_split_vec:
                                             for risk_averse_cc_agent_optimism in risk_averse_cc_agent_optimism_vec:
                                                 for risk_averse_cc_agent_discount_rate_multiplier in risk_averse_cc_agent_discount_rate_multiplier_vec:
-                                                    risk_averse_cc_agent_discount_rate = risk_averse_cc_agent_discount_rate_multiplier * filplus_agent_discount_rate
+                                                    risk_averse_cc_agent_discount_rate = risk_averse_cc_agent_discount_rate_multiplier * base_agent_discount_rate_yr_pct
                                                     name = 'SDMExperiment=%0.03f,FILP=%d,%d,%0.02f,NormalCC=%d,%d,RACC=%d,%d,CCSplit=%0.02f,Onboard=%0.02f,RR=%0.02f,DR=%d' % \
                                                     (
                                                         sdm_slope,
