@@ -361,7 +361,7 @@ for total_daily_rb_onboard_pib in total_daily_rb_onboard_pib_vec:
                                     filecoin_model_kwargs = exp_sdm.filecoin_model_kwargs(sdm_enable_date, sdm_slope)
 
                                     # baseline experiments
-                                    name = 'SDMBaseline=%0.03f,FILP=%d,%d,%0.02f,CC=%d,%d,Onboard=%0.02f,RR=%0.02f,DR=%d' % \
+                                    name = 'SDMBaseline_%0.03f,FILP_%d,%d,%0.02f,CC_%d,%d,Onboard_%0.02f,RR_%0.02f,DR_%d' % \
                                         (
                                             sdm_slope,
                                             filplus_agent_optimism, filplus_agent_discount_rate, agent_power_distribution_control[0],
@@ -391,7 +391,7 @@ for total_daily_rb_onboard_pib in total_daily_rb_onboard_pib_vec:
                                         for risk_averse_cc_agent_optimism in risk_averse_cc_agent_optimism_vec:
                                             for risk_averse_cc_agent_discount_rate_multiplier in risk_averse_cc_agent_discount_rate_multiplier_vec:
                                                 risk_averse_cc_agent_discount_rate = risk_averse_cc_agent_discount_rate_multiplier * base_agent_discount_rate_yr_pct
-                                                name = 'SDMExperiment=%0.03f,FILP=%d,%d,%0.02f,NormalCC=%d,%d,RACC=%d,%d,CCSplit=%0.02f,Onboard=%0.02f,RR=%0.02f,DR=%d' % \
+                                                name = 'SDMExperiment_%0.03f,FILP_%d,%d,%0.02f,NormalCC_%d,%d,RACC_%d,%d,CCSplit_%0.02f,Onboard_%0.02f,RR_%0.02f,DR_%d' % \
                                                 (
                                                     sdm_slope,
                                                     filplus_agent_optimism, filplus_agent_discount_rate, agent_power_distribution_experiment[0],

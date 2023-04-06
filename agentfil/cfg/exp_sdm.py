@@ -193,8 +193,8 @@ if __name__ == '__main__':
     experiment_names = []
     
     # Generate baseline experiments
-    total_daily_rb_onboard_pib_vec = [4, 6, 8]
-    renewal_rate_vec = [.4, .6, .8]
+    total_daily_rb_onboard_pib_vec = [6]
+    renewal_rate_vec = [.6]
     agent_power_distribution_vec = [
         [0.3, 0.7],
         [0.5, 0.5],
@@ -202,14 +202,14 @@ if __name__ == '__main__':
     ]
     cc_split_vec = [0.7, 0.8, 0.9]  # the % of total CC agents which are risk averse
 
-    fil_supply_discount_rate_vec = [5, 10, 15, 20, 25, 30]
-    filplus_agent_optimism_vec = [3,4,5]
-    normal_cc_agent_optimism_vec = [3,4,5]
-    risk_averse_cc_agent_optimism_vec = [3,4,5]
+    fil_supply_discount_rate_vec = [10, 20, 30]
+    filplus_agent_optimism_vec = [4]
+    normal_cc_agent_optimism_vec = [4]
+    risk_averse_cc_agent_optimism_vec = [4]
     
-    filplus_agent_discount_rate_yr_pct_vec = [25, 50, 75]
+    filplus_agent_discount_rate_yr_pct_vec = [25, 50]
     normal_cc_agent_discount_rate_multiplier_vec = [1, 2]
-    risk_averse_cc_agent_discount_rate_multiplier_vec = [2, 3, 4, 5]
+    risk_averse_cc_agent_discount_rate_multiplier_vec = [2, 3, 4]
 
     sdm_enable_date = date(2023, 10, 15) # ~6 months after the start of the simulation
     sdm_slope_vec = [1.0, 0.285]
@@ -226,7 +226,7 @@ if __name__ == '__main__':
                                     normal_cc_agent_discount_rate = normal_cc_agent_discount_rate_multiplier * base_agent_discount_rate_yr_pct
                                     for sdm_slope in sdm_slope_vec:
                                         # baseline experiment
-                                        name = 'SDMBaseline=%0.03f,FILP=%d,%d,%0.02f,CC=%d,%d,Onboard=%0.02f,RR=%0.02f,DR=%d' % \
+                                        name = 'SDMBaseline_%0.03f,FILP_%d,%d,%0.02f,CC_%d,%d,Onboard_%0.02f,RR_%0.02f,DR_%d' % \
                                             (
                                                 sdm_slope,
                                                 filplus_agent_optimism, filplus_agent_discount_rate, agent_power_distribution[0],
@@ -240,7 +240,7 @@ if __name__ == '__main__':
                                             for risk_averse_cc_agent_optimism in risk_averse_cc_agent_optimism_vec:
                                                 for risk_averse_cc_agent_discount_rate_multiplier in risk_averse_cc_agent_discount_rate_multiplier_vec:
                                                     risk_averse_cc_agent_discount_rate = risk_averse_cc_agent_discount_rate_multiplier * base_agent_discount_rate_yr_pct
-                                                    name = 'SDMExperiment=%0.03f,FILP=%d,%d,%0.02f,NormalCC=%d,%d,RACC=%d,%d,CCSplit=%0.02f,Onboard=%0.02f,RR=%0.02f,DR=%d' % \
+                                                    name = 'SDMExperiment_%0.03f,FILP_%d,%d,%0.02f,NormalCC_%d,%d,RACC_%d,%d,CCSplit_%0.02f,Onboard_%0.02f,RR_%0.02f,DR_%d' % \
                                                     (
                                                         sdm_slope,
                                                         filplus_agent_optimism, filplus_agent_discount_rate, agent_power_distribution[0],
