@@ -51,7 +51,7 @@ class SDMBaselineExperiment(ExperimentCfg):
             },
             {
                 'max_sealing_throughput': max_sealing_throughput,
-                'max_daily_rb_onboard_pib': total_daily_onboard_rb_pib * agent_power_distribution[0],
+                'max_daily_rb_onboard_pib': total_daily_onboard_rb_pib * agent_power_distribution[1],
                 'renewal_rate': renewal_rate,
                 'fil_plus_rate': 0,  # a CC agent
                 'agent_optimism': cc_agent_optimism,
