@@ -422,3 +422,55 @@ for total_daily_rb_onboard_pib in total_daily_rb_onboard_pib_vec:
                                                     },
                                                     'filecoin_model_kwargs': filecoin_model_kwargs,
                                                 }
+
+"""
+Experiments that relate to the assessing sensitivity of the network to 
+the proportion of FIL+ agents in the network - conducted at the subpopulation level.
+"""
+total_daily_rb_onboard_pib_vec = [4, 6, 8]
+renewal_rate_vec = [0.5, 0.6, 0.7]
+filp_agent_power_distribution_vec = np.arange(0.3, 0.7+0.1, 0.1)
+
+fil_supply_discount_rate_vec = [10, 20, 30]
+filplus_agent_optimism_vec = [4]
+normal_cc_agent_optimism_vec = [4]
+
+filplus_agent_discount_rate_yr_pct_vec = [25, 50]
+normal_cc_agent_discount_rate_multiplier_vec = [1, 2]
+
+for total_daily_rb_onboard_pib in total_daily_rb_onboard_pib_vec:
+    for renewal_rate in renewal_rate_vec:
+        for filp_agent_power in filp_agent_power_distribution_vec:
+            for fil_supply_discount_rate in fil_supply_discount_rate_vec:
+                for filplus_agent_optimism in filplus_agent_optimism_vec:
+                    for normal_cc_agent_optimism in normal_cc_agent_optimism_vec:
+                        for filplus_agent_discount_rate in filplus_agent_discount_rate_yr_pct_vec:
+                            for normal_cc_agent_discount_rate_multiplier in normal_cc_agent_discount_rate_multiplier_vec:
+                                normal_cc_agent_discount_rate = normal_cc_agent_discount_rate_multiplier * filplus_agent_discount_rate
+                                agent_power_distribution = np.asarray([filp_agent_power, 1 - filp_agent_power])
+                                agent_power_distribution = agent_power_distribution / np.sum(agent_power_distribution)
+
+                                name = 'MinerProportionSensitivity,FILP_%d,%d,%0.02f,CC_%d,%d,Onboard_%0.02f,RR_%0.02f,DR_%d' % \
+                                    (
+                                        filplus_agent_optimism, filplus_agent_discount_rate, filp_agent_power,
+                                        normal_cc_agent_optimism, normal_cc_agent_discount_rate, 
+                                        total_daily_rb_onboard_pib, renewal_rate, fil_supply_discount_rate,
+                                    )
+                                
+                                name2experiment[name] = {
+                                        'module_name': 'agentfil.cfg.exp_sdm',
+                                        'instantiator': 'SDMBaselineExperiment',
+                                        'instantiator_kwargs': {
+                                            'max_sealing_throughput': C.DEFAULT_MAX_SEALING_THROUGHPUT_PIB,
+                                            'total_daily_onboard_rb_pib': total_daily_rb_onboard_pib,
+                                            'renewal_rate': renewal_rate,
+                                            'agent_power_distribution': agent_power_distribution,
+                                            'fil_supply_discount_rate': fil_supply_discount_rate,
+                                            'filplus_agent_optimism': filplus_agent_optimism,
+                                            'filplus_agent_discount_rate_yr_pct': filplus_agent_discount_rate,
+                                            'cc_agent_optimism': normal_cc_agent_optimism,
+                                            'cc_agent_discount_rate_yr_pct': normal_cc_agent_discount_rate,
+
+                                        },
+                                        'filecoin_model_kwargs': {},  # do not add any policy changes, default model
+                                    }
