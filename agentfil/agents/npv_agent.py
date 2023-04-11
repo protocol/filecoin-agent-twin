@@ -79,8 +79,7 @@ class NPVAgent(SPAgent):
         pledge_repayment_estimate = self.compute_repayment_amount_from_supply_discount_rate_model(date_in, prev_day_pledge_per_QAP, sector_duration_yrs)
         cost_per_sector_estimate = pledge_repayment_estimate - prev_day_pledge_per_QAP
 
-        n = sector_duration_yrs / 1   # because the agent discount rate is in terms of per-year
-        cost_per_sector_estimate_discounted = cost_per_sector_estimate / (1 + self.agent_discount_rate_yr/n)**(n*sector_duration_yrs)
+        cost_per_sector_estimate_discounted = cost_per_sector_estimate / np.exp(self.agent_discount_rate_yr * sector_duration_yrs)
         
         npv_estimate = future_rewards_estimate_discounted - cost_per_sector_estimate_discounted
         
