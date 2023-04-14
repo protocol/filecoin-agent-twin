@@ -69,6 +69,7 @@ class FilecoinModel(mesa.Model):
                  capital_inflow_process_kwargs=None, capital_inflow_distribution_policy=None, capital_inflow_distribution_policy_kwargs=None,
                  fil_supply_discount_rate_process_kwargs=None,
                  sdm=None, sdm_kwargs=None,  # TODO: try to generalize this as a set of possible protocol updates
+                 user_post_network_update_callables=None, user_post_network_update_callables_kwargs_list=None,
                  renewals_setting='optimistic',
                  random_seed=1234):
         """
@@ -144,6 +145,12 @@ class FilecoinModel(mesa.Model):
         self.fil_supply_discount_rate_process_kwargs = fil_supply_discount_rate_process_kwargs
         if self.fil_supply_discount_rate_process_kwargs is None:
             self.fil_supply_discount_rate_process_kwargs = {}
+        self.user_post_network_update_callables = user_post_network_update_callables
+        self.user_post_network_update_callables_kwargs_list = user_post_network_update_callables_kwargs_list
+        if self.user_post_network_update_callables_kwargs_list is None:
+            self.user_post_network_update_callables_kwargs_list = []
+            for _ in range(len(self.user_post_network_update_callables)):
+                self.user_post_network_update_callables_kwargs_list.append({})
 
         self.sdm = sdm
         self.sdm_kwargs = sdm_kwargs
@@ -178,6 +185,8 @@ class FilecoinModel(mesa.Model):
 
         self._validate(agent_kwargs_list)
 
+        self._setup_network_configuration()
+
         self._initialize_network_description_df()
         self._download_historical_data()
         self._seed_agents(agent_types=agent_types, agent_kwargs_list=agent_kwargs_list)
@@ -197,7 +206,6 @@ class FilecoinModel(mesa.Model):
             return power_in * sdm_multiplier * fil_plus_multipler
         else: # Assume no SDM
             return power_in * fil_plus_multipler
-            
 
     def step(self):
         # update global forecasts
@@ -214,6 +222,7 @@ class FilecoinModel(mesa.Model):
         self._update_generated_quantities()
 
         self._step_post_network_updates()
+        self._step_user_post_network_updates()
 
         self._update_agents()
         # update any other inputs to agents
@@ -221,6 +230,9 @@ class FilecoinModel(mesa.Model):
         # increment counters
         self.current_date += timedelta(days=1)
         self.current_day += 1
+
+    def _setup_network_configuration(self):
+        self.lock_target = 0.3  # the default lock target
 
     def _setup_global_forecasts(self):
         self.global_forecast_df = pd.DataFrame()
@@ -255,6 +267,11 @@ class FilecoinModel(mesa.Model):
         # call stuff here that should be run after all network statistics have been updated
         # self.capital_inflow_process.step()
         pass
+
+    def _step_user_post_network_updates(self):
+        # call any user defined stuff here that should be run after all network statistics have been updated
+        for user_post_network_update_callable, user_post_network_update_callable_kwargs in zip(self.user_post_network_update_callables, self.user_post_network_update_callables_kwargs_list):
+            user_post_network_update_callable(self, **user_post_network_update_callable_kwargs)  # by passing self to this, the user can access any of the model's attributes & update them!
 
     def estimate_pledge_for_qa_power(self, date_in, qa_power_pib):
         """
@@ -379,8 +396,6 @@ class FilecoinModel(mesa.Model):
         self.filecoin_df['scheduled_pledge_release'] = 0
         self.filecoin_df.loc[start_idx:end_idx, 'scheduled_pledge_release'] = known_scheduled_pledge_release_vec
         
-        self.lock_target = 0.3
-
         self.zero_cum_capped_power = data.get_cum_capped_rb_power(constants.NETWORK_DATA_START)
 
     def _seed_agents(self, agent_types=None, agent_kwargs_list=None):

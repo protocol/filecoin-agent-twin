@@ -1,10 +1,12 @@
 import numpy as np
 
-from datetime import date
+from datetime import date, timedelta
 
 from .. import constants as C
 from ..agents import dca_agent, basic_rational_agent, roi_agent, npv_agent
 from . import exp_sdm
+from . import exp_miner_proportion
+from . import exp_locktarget
 
 """
 Add experiments to this file so that they can be run from the command line.
@@ -474,3 +476,115 @@ for total_daily_rb_onboard_pib in total_daily_rb_onboard_pib_vec:
                                         },
                                         'filecoin_model_kwargs': {},  # do not add any policy changes, default model
                                     }
+                                
+"""
+Lock Target experiments
+TODO: more description!
+"""
+total_daily_rb_onboard_pib_vec = [4, 6, 8]
+renewal_rate_vec = [0.5, 0.6, 0.7]
+filp_agent_power_distribution_vec = np.arange(0.3, 0.7+0.1, 0.1)
+
+fil_supply_discount_rate_vec = [10, 20, 30]
+filplus_agent_optimism_vec = [4]
+normal_cc_agent_optimism_vec = [4]
+
+filplus_agent_discount_rate_yr_pct_vec = [25, 50]
+normal_cc_agent_discount_rate_multiplier_vec = [1, 2]
+
+lock_target_increase_value_vec = [0.4, 0.5, 0.6, 0.7, 0.8]
+lock_target_increase_dynamics_vec = ['linear_ramp', 'jump']
+lock_target_ramp_speed_months_vec = [3, 6, 12]
+lock_target_increase_date_start = date(2023, 10, 15)
+
+for total_daily_rb_onboard_pib in total_daily_rb_onboard_pib_vec:
+    for renewal_rate in renewal_rate_vec:
+        for filp_agent_power in filp_agent_power_distribution_vec:
+            for fil_supply_discount_rate in fil_supply_discount_rate_vec:
+                for filplus_agent_optimism in filplus_agent_optimism_vec:
+                    for normal_cc_agent_optimism in normal_cc_agent_optimism_vec:
+                        for filplus_agent_discount_rate in filplus_agent_discount_rate_yr_pct_vec:
+                            for normal_cc_agent_discount_rate_multiplier in normal_cc_agent_discount_rate_multiplier_vec:
+                                normal_cc_agent_discount_rate = normal_cc_agent_discount_rate_multiplier * filplus_agent_discount_rate
+
+                                for lock_target_increase_value in lock_target_increase_value_vec:
+                                    for lock_target_increase_dynamics in lock_target_increase_dynamics_vec:
+                                        if lock_target_increase_dynamics == 'jump':
+                                            # configure the lock target change policy
+                                            lock_target_callable, lock_target_callable_kwargs = \
+                                                exp_locktarget.get_lock_target_post_step_callable(
+                                                    lock_target_increase_dynamics, 
+                                                    lock_target_increase_value,
+                                                    lock_target_increase_date_start,
+                                                    None
+                                                )
+                                            filecoin_model_kwargs = {
+                                                'user_post_network_update_callables': [lock_target_callable],
+                                                'user_post_network_update_callables_kwargs_list': [lock_target_callable_kwargs],
+                                            }
+                                            
+                                            name = 'LockTarget[%0.1f,%s],FILP_%d,%d,%0.02f,CC_%d,%d,Onboard_%0.02f,RR_%0.02f,DR_%d' % \
+                                                (
+                                                    lock_target_increase_value, lock_target_increase_dynamics,
+                                                    filplus_agent_optimism, filplus_agent_discount_rate, filp_agent_power,
+                                                    normal_cc_agent_optimism, normal_cc_agent_discount_rate, 
+                                                    total_daily_rb_onboard_pib, renewal_rate, fil_supply_discount_rate,
+                                                )
+                                            name2experiment[name] = {
+                                                'module_name': 'agentfil.cfg.exp_sdm',
+                                                'instantiator': 'SDMBaselineExperiment',
+                                                'instantiator_kwargs': {
+                                                    'max_sealing_throughput': C.DEFAULT_MAX_SEALING_THROUGHPUT_PIB,
+                                                    'total_daily_onboard_rb_pib': total_daily_rb_onboard_pib,
+                                                    'renewal_rate': renewal_rate,
+                                                    'agent_power_distribution': agent_power_distribution_control,
+                                                    'fil_supply_discount_rate': fil_supply_discount_rate,
+                                                    'filplus_agent_optimism': filplus_agent_optimism,
+                                                    'filplus_agent_discount_rate_yr_pct': filplus_agent_discount_rate,
+                                                    'cc_agent_optimism': normal_cc_agent_optimism,
+                                                    'cc_agent_discount_rate_yr_pct': normal_cc_agent_discount_rate,
+
+                                                },
+                                                'filecoin_model_kwargs': filecoin_model_kwargs,
+                                            }
+                                            
+                                        elif lock_target_increase_dynamics == 'linear_ramp':
+                                            for lock_target_ramp_speed_months in lock_target_ramp_speed_months_vec:
+                                                lock_target_increase_date_stop = lock_target_increase_date_start + timedelta(days=30*lock_target_ramp_speed_months)
+                                                lock_target_callable, lock_target_callable_kwargs = \
+                                                    exp_locktarget.get_lock_target_post_step_callable(
+                                                        lock_target_increase_dynamics, 
+                                                        lock_target_increase_value,
+                                                        lock_target_increase_date_start,
+                                                        lock_target_increase_date_stop
+                                                    )
+                                                filecoin_model_kwargs = {
+                                                    'user_post_network_update_callables': [lock_target_callable],
+                                                    'user_post_network_update_callables_kwargs_list': [lock_target_callable_kwargs],
+                                                }
+
+                                                name = 'LockTarget[%0.1f,%s,%d],FILP_%d,%d,%0.02f,CC_%d,%d,Onboard_%0.02f,RR_%0.02f,DR_%d' % \
+                                                    (
+                                                        lock_target_increase_value, lock_target_increase_dynamics, lock_target_ramp_speed_months,
+                                                        filplus_agent_optimism, filplus_agent_discount_rate, filp_agent_power,
+                                                        normal_cc_agent_optimism, normal_cc_agent_discount_rate, 
+                                                        total_daily_rb_onboard_pib, renewal_rate, fil_supply_discount_rate,
+                                                    )
+                                                name2experiment[name] = {
+                                                    'module_name': 'agentfil.cfg.exp_sdm',
+                                                    'instantiator': 'SDMBaselineExperiment',
+                                                    'instantiator_kwargs': {
+                                                        'max_sealing_throughput': C.DEFAULT_MAX_SEALING_THROUGHPUT_PIB,
+                                                        'total_daily_onboard_rb_pib': total_daily_rb_onboard_pib,
+                                                        'renewal_rate': renewal_rate,
+                                                        'agent_power_distribution': agent_power_distribution_control,
+                                                        'fil_supply_discount_rate': fil_supply_discount_rate,
+                                                        'filplus_agent_optimism': filplus_agent_optimism,
+                                                        'filplus_agent_discount_rate_yr_pct': filplus_agent_discount_rate,
+                                                        'cc_agent_optimism': normal_cc_agent_optimism,
+                                                        'cc_agent_discount_rate_yr_pct': normal_cc_agent_discount_rate,
+
+                                                    },
+                                                    'filecoin_model_kwargs': filecoin_model_kwargs,
+                                                }
+                                                
