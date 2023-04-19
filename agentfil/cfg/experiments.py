@@ -15,6 +15,41 @@ Add experiments to this file so that they can be run from the command line.
 name2experiment = {}
 
 """
+Baseline experiments - establish the baseline by onboarding:
+    - a constant amount of power
+    - a constant renewal rate
+    - a constant FIL+ rate
+    - 0 % external discount rate (i.e. lending is free)
+    - a constant sector duration of 360 days
+"""
+max_daily_rb_onboard_pib_vec = [4, 6, 8]
+renewal_rate_vec = [0.4, 0.5, 0.6, 0.7, 0.8]
+fil_plus_rate_vec = [.4, .6, .8]
+sector_duration = 360
+fil_supply_discount_rate = 0
+max_sealing_throughput = [C.DEFAULT_MAX_SEALING_THROUGHPUT_PIB]
+for max_daily_rb_onboard_pib in max_daily_rb_onboard_pib_vec:
+    for renewal_rate in renewal_rate_vec:
+        for fil_plus_rate in fil_plus_rate_vec:
+            name = 'BaselineDCA_RBP_%0.02f-RR_%0.02f-FPR_%0.02f-Dur_%0.02f' % \
+                (max_daily_rb_onboard_pib, renewal_rate, fil_plus_rate, sector_duration)
+            name2experiment[name] = {
+                'module_name': 'agentfil.cfg.exp_dca_agents',
+                'instantiator': 'ExpDCAAgentsConstantDiscountRate',
+                'instantiator_kwargs': {
+                    'num_agents': 1,
+                    'agent_max_sealing_throughput': max_sealing_throughput,
+                    'agent_power_distribution': [1],
+                    'max_daily_rb_onboard_pib': max_daily_rb_onboard_pib,
+                    'renewal_rate': renewal_rate,
+                    'fil_plus_rate': fil_plus_rate,
+                    'sector_duration': sector_duration,
+                    'fil_supply_discount_rate': fil_supply_discount_rate
+                },
+                'filecoin_model_kwargs': {},
+            }
+
+"""
 Experiments related to: "How does the discount rate affect the agent rewards"
 This is the most basic manifestation, since we use DCA agents which onboard a constant
 amount of power, renew a constant amount of power, and have a constant FIL+ percentage.

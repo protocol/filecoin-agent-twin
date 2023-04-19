@@ -149,8 +149,9 @@ class FilecoinModel(mesa.Model):
         self.user_post_network_update_callables_kwargs_list = user_post_network_update_callables_kwargs_list
         if self.user_post_network_update_callables_kwargs_list is None:
             self.user_post_network_update_callables_kwargs_list = []
-            for _ in range(len(self.user_post_network_update_callables)):
-                self.user_post_network_update_callables_kwargs_list.append({})
+            if self.user_post_network_update_callables is not None:
+                for _ in range(len(self.user_post_network_update_callables)):
+                    self.user_post_network_update_callables_kwargs_list.append({})
 
         self.sdm = sdm
         self.sdm_kwargs = sdm_kwargs
@@ -270,8 +271,9 @@ class FilecoinModel(mesa.Model):
 
     def _step_user_post_network_updates(self):
         # call any user defined stuff here that should be run after all network statistics have been updated
-        for user_post_network_update_callable, user_post_network_update_callable_kwargs in zip(self.user_post_network_update_callables, self.user_post_network_update_callables_kwargs_list):
-            user_post_network_update_callable(self, **user_post_network_update_callable_kwargs)  # by passing self to this, the user can access any of the model's attributes & update them!
+        if self.user_post_network_update_callables is not None:
+            for user_post_network_update_callable, user_post_network_update_callable_kwargs in zip(self.user_post_network_update_callables, self.user_post_network_update_callables_kwargs_list):
+                user_post_network_update_callable(self, **user_post_network_update_callable_kwargs)  # by passing self to this, the user can access any of the model's attributes & update them!
 
     def estimate_pledge_for_qa_power(self, date_in, qa_power_pib):
         """
