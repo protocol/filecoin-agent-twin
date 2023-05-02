@@ -48,7 +48,7 @@ class FILSupplyDiscountRateProcess:
             else:
                 # TODO: raise warning
                 random_walk_variance = (self.max_discount_rate_pct - self.min_discount_rate_pct) / 10.
-            self.discount_rate_pct = np.clip(self.rng.normal(self.discount_rate, random_walk_variance), self.min_discount_rate, self.max_discount_rate)
+            self.discount_rate_pct = np.clip(self.rng.normal(self.discount_rate_pct, random_walk_variance), self.min_discount_rate_pct, self.max_discount_rate_pct)
         elif self.behavior == 'linear-adaptive':
             # TODO: define some sort of behavior based on network econometrics
             if circ_supply is None:
