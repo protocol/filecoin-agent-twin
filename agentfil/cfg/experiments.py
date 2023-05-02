@@ -150,36 +150,38 @@ agent_power_distribution_vec = [
     np.asarray([5,4,3,2,1]),  # power distribution = [5/15, 4/15, 3/15, 2/15, 1/15] * 100%
 ]
 
-max_daily_rb_onboard_pib_vec = [5, 10, 25]
+# max_daily_rb_onboard_pib_vec = [4,6,8,50]
+max_total_onboard_pib_vec = [6,50]
 renewal_rate_vec = [.4, .6, .8]
 fil_plus_rate_vec = [.4, .6, .8]
 sector_duration_vec = [360, 360*3, 360*5]
-fil_supply_discount_rate_vec = [20, 30, 40, 50]
+fil_supply_discount_rate_vec = [10, 20, 30, 40, 50]
 
 for num_agents in num_agents_vec:
     for agent_power_distribution in agent_power_distribution_vec:
         # normalize to sum to one
         agent_power_distribution_normalized = agent_power_distribution/np.sum(agent_power_distribution)
         # setup the max sealing throughput to be proportional to agent power, capped by the default max
-        max_sealing_throughput_scaled = np.sum(agent_power_distribution)/max(agent_power_distribution) * C.DEFAULT_MAX_SEALING_THROUGHPUT_PIB
-        max_sealing_throughput = agent_power_distribution_normalized * max_sealing_throughput_scaled
+        # max_sealing_throughput_scaled = np.sum(agent_power_distribution)/max(agent_power_distribution) * C.DEFAULT_MAX_SEALING_THROUGHPUT_PIB
+        # max_sealing_throughput = agent_power_distribution_normalized * max_sealing_throughput_scaled
 
-        for max_daily_rb_onboard_pib in max_daily_rb_onboard_pib_vec:
+
+        for max_total_onboard_pib in max_total_onboard_pib_vec:
             for renewal_rate in renewal_rate_vec:
                 for fil_plus_rate in fil_plus_rate_vec:
                     for sector_duration in sector_duration_vec:
                         for fil_supply_discount_rate in fil_supply_discount_rate_vec:
                             agent_power_distribution_str = ','.join([str(x) for x in agent_power_distribution])
-                            name = 'DCA=%s-ConstFilSupplyDiscountRate=%d-MaxDailyOnboard=%0.02f-RenewalRate=%0.02f-FilPlusRate=%0.02f-SectorDuration=%d' % \
-                                (agent_power_distribution_str,fil_supply_discount_rate, max_daily_rb_onboard_pib, renewal_rate, fil_plus_rate, sector_duration)
+                            name = 'DCAPowerConcentration=%s-ConstFilSupplyDiscountRate=%d-MaxDailyOnboard=%0.02f-RenewalRate=%0.02f-FilPlusRate=%0.02f-SectorDuration=%d' % \
+                                (agent_power_distribution_str,fil_supply_discount_rate, max_total_onboard_pib, renewal_rate, fil_plus_rate, sector_duration)
                             name2experiment[name] = {
                                 'module_name': 'agentfil.cfg.exp_dca_agents',
-                                'instantiator': 'ExpDCAAgentsConstantDiscountRate',
+                                'instantiator': 'ExpDCAAgentsPowerScaledConstantDiscountRate',
                                 'instantiator_kwargs': {
                                     'num_agents': num_agents,
                                     'agent_power_distribution': agent_power_distribution_normalized,
-                                    'agent_max_sealing_throughput': max_sealing_throughput,
-                                    'max_daily_rb_onboard_pib': max_daily_rb_onboard_pib,
+                                    'agent_max_sealing_throughput': C.DEFAULT_MAX_SEALING_THROUGHPUT_PIB,
+                                    'max_daily_rb_onboard_pib': max_total_onboard_pib,
                                     'renewal_rate': renewal_rate,
                                     'fil_plus_rate': fil_plus_rate,
                                     'sector_duration': sector_duration,
@@ -623,3 +625,71 @@ for total_daily_rb_onboard_pib in total_daily_rb_onboard_pib_vec:
                                                     'filecoin_model_kwargs': filecoin_model_kwargs,
                                                 }
                                                 
+
+"""
+Switching Agent experiments
+"""
+fil_supply_discount_rate_vec = [10, 20, 30]
+
+# common to all agents
+max_daily_rb_onboard_pib_vec = [6]
+renewal_rate_vec = [.6]
+fil_plus_rate_vec = [.6]
+
+# switching configurations
+random_seed = 1234
+switching_period_vec = [30, 90, 180]
+switching_strategies_vec = [['dca', 'npv', 'roi']]
+switching_strategy_probabilities_vec = [[0.33, 0.33, 0.34]]
+
+# keep all of these static, since we're interested in parametrizing the switching strategies
+# dca agent specific config
+sector_duration_vec = [360]
+
+# npv agent configs
+npv_agent_optimism_vec = [4]
+npv_agent_discount_rate_yr_pct_vec = [50]
+
+# ROI agent configs
+roi_agent_optimism_vec = [4]
+roi_threshold_vec = [0.1]
+
+for fil_supply_discount_rate in fil_supply_discount_rate_vec:
+    for max_daily_rb_onboard_pib in max_daily_rb_onboard_pib_vec:
+        for renewal_rate in renewal_rate_vec:
+            for fil_plus_rate in fil_plus_rate_vec:
+                for switching_period in switching_period_vec:
+                    for switching_strategy in switching_strategies_vec:
+                        for switching_strategy_probabilities in switching_strategy_probabilities_vec:
+                            for sector_duration in sector_duration_vec:
+                                for npv_agent_optimism in npv_agent_optimism_vec:
+                                    for npv_agent_discount_rate_yr_pct in npv_agent_discount_rate_yr_pct_vec:
+                                        for roi_agent_optimism in roi_agent_optimism_vec:
+                                            for roi_threshold in roi_threshold_vec:
+                                                name = 'Switching-0.33DCA-0.33NPV-0.34ROI-MaxRBP_%0.02f-RR_%0.02f-FPR_%0.02f-SR_%d-Dur_%d-NPV_%d_%d-ROI_%d_%0.02f-DR_%d' % \
+                                                    (max_daily_rb_onboard_pib, renewal_rate, fil_plus_rate, switching_period, sector_duration, 
+                                                     npv_agent_optimism, npv_agent_discount_rate_yr_pct, roi_agent_optimism, roi_threshold, fil_supply_discount_rate)
+                                                name2experiment[name] = {
+                                                    'module_name': 'agentfil.cfg.exp_switching_agents',
+                                                    'instantiator': 'ExpSwitchingAgentsConstantDiscountRate',
+                                                    'instantiator_kwargs': {
+                                                        'num_agents':1, 
+                                                        'agent_power_distribution':[1],
+                                                        'agent_max_sealing_throughput':C.DEFAULT_MAX_SEALING_THROUGHPUT_PIB,
+                                                        'max_daily_rb_onboard_pib':max_daily_rb_onboard_pib, 
+                                                        'renewal_rate':renewal_rate, 
+                                                        'fil_plus_rate':fil_plus_rate, 
+                                                        'fil_supply_discount_rate':fil_supply_discount_rate,
+                                                        'random_seed':random_seed,
+                                                        'switching_period_days':switching_period, 
+                                                        'switching_strategies':switching_strategy, 
+                                                        'switching_strategy_probabilities':switching_strategy_probabilities,
+                                                        'dca_sector_duration':sector_duration,
+                                                        'npv_agent_optimism':npv_agent_optimism, 
+                                                        'npv_agent_discount_rate_yr_pct':npv_agent_discount_rate_yr_pct,
+                                                        'roi_agent_optimism':roi_agent_optimism, 
+                                                        'roi_threshold':roi_threshold
+                                                    },
+                                                    'filecoin_model_kwargs': {},  # do not add any policy changes, default model
+                                                }
+

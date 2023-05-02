@@ -16,14 +16,21 @@ class DCAAgent(SPAgent):
     """
     def __init__(self, model, id, historical_power, start_date, end_date,
                  max_sealing_throughput=constants.DEFAULT_MAX_SEALING_THROUGHPUT_PIB, max_daily_rb_onboard_pib=3, 
-                 renewal_rate=0.6, fil_plus_rate=0.6, sector_duration=365):
-        super().__init__(model, id, historical_power, start_date, end_date, max_sealing_throughput_pib=max_sealing_throughput)
+                 renewal_rate=0.6, fil_plus_rate=0.6, sector_duration=365, debug_mode=False):
+        """
 
+        debug_mode - if True, the agent will compute the power scheduled to be onboarded/renewed, but will not actually
+                     onboard/renew that power, but rather return the values.  This can be used for debugging
+                     or other purposes
+        """
+        super().__init__(model, id, historical_power, start_date, end_date, max_sealing_throughput_pib=max_sealing_throughput)
+        
         self.sector_duration = sector_duration
         self.sector_duration_yrs = sector_duration / 365
         self.max_daily_rb_onboard_pib = max_daily_rb_onboard_pib
         self.renewal_rate = renewal_rate
         self.fil_plus_rate = fil_plus_rate
+        self.debug_mode = debug_mode
 
     def step(self):
         rb_to_onboard = min(self.max_daily_rb_onboard_pib, self.max_sealing_throughput_pib)
@@ -44,9 +51,12 @@ class DCAAgent(SPAgent):
         pledge_repayment_value_onboard = self.compute_repayment_amount_from_supply_discount_rate_model(self.current_date, 
                                                                                                        pledge_needed_for_onboarding, 
                                                                                                        self.sector_duration_yrs)
-
-        self.onboard_power(self.current_date, rb_to_onboard, qa_to_onboard, self.sector_duration, 
-                           pledge_needed_for_onboarding, pledge_repayment_value_onboard)
+        if not self.debug_mode:
+            self.onboard_power(self.current_date, rb_to_onboard, qa_to_onboard, self.sector_duration, 
+                               pledge_needed_for_onboarding, pledge_repayment_value_onboard)
+        else:
+            onboard_args_to_return = (self.current_date, rb_to_onboard, qa_to_onboard, self.sector_duration, 
+                                      pledge_needed_for_onboarding, pledge_repayment_value_onboard)
 
         # renewals
         if self.renewal_rate > 0:
@@ -62,7 +72,16 @@ class DCAAgent(SPAgent):
                                                                                                          pledge_needed_for_renewal, 
                                                                                                          self.sector_duration_yrs)
 
-            self.renew_power(self.current_date, cc_power_to_renew, deal_power_to_renew, self.sector_duration,
-                             pledge_needed_for_renewal, pledge_repayment_value_renew)
+            if not self.debug_mode:
+                self.renew_power(self.current_date, cc_power_to_renew, deal_power_to_renew, self.sector_duration,
+                                pledge_needed_for_renewal, pledge_repayment_value_renew)
+            else:
+                renew_args_to_return = (self.current_date, cc_power_to_renew, deal_power_to_renew, self.sector_duration,
+                                        pledge_needed_for_renewal, pledge_repayment_value_renew)
 
+        # even if we are in debug mode, we need to step the agent b/c that updates agent internal states
+        # such as current_date
         super().step()
+
+        if self.debug_mode:
+            return onboard_args_to_return, renew_args_to_return

@@ -61,10 +61,12 @@ def plot_experiment(
     filecoin_df = pd.read_csv(os.path.join(results_root_dir, experiment_dir, 'filecoin_df.csv'))
     if min_date is not None:
         filecoin_df = filecoin_df[pd.to_datetime(filecoin_df['date']) >= pd.to_datetime(min_date)]
-        baseline_filecoin_df_subset = baseline_filecoin_df[pd.to_datetime(baseline_filecoin_df['date']) >= pd.to_datetime(min_date)]
+        if baseline_relative:
+            baseline_filecoin_df_subset = baseline_filecoin_df[pd.to_datetime(baseline_filecoin_df['date']) >= pd.to_datetime(min_date)]
     if max_date is not None:
         filecoin_df = filecoin_df[pd.to_datetime(filecoin_df['date']) <= pd.to_datetime(max_date)]
-        baseline_filecoin_df_subset = baseline_filecoin_df[pd.to_datetime(baseline_filecoin_df['date']) <= pd.to_datetime(max_date)]
+        if baseline_relative:
+            baseline_filecoin_df_subset = baseline_filecoin_df[pd.to_datetime(baseline_filecoin_df['date']) <= pd.to_datetime(max_date)]
       
     plot_kwargs = plot_kwargs if plot_kwargs is not None else {}
     if len(keys)==1:
@@ -90,27 +92,7 @@ def plot_experiment(
             plt.plot(x, y/y_baseline*100, label=label_str, **plot_kwargs)
     plt.xticks(rotation=60)
 
-def plot_agent(
-        results_root_dir,
-        keys, experiment_dir,
-        x_post_process=None, 
-        y_post_process=None,
-        agent_ids_to_plot=None,
-        df_name='agent_info_df',
-        x_key='date', label_prepend='', label_postpend='', 
-        min_date = None, max_date = None,
-        per_agent_label_list = None,
-        plot_kwargs_list=None):
-    if x_post_process is None:
-        x_post_fn = lambda x: x
-    else:
-        x_post_fn = x_post_process
-    if y_post_process is None:
-        y_post_fn = lambda x: x
-    else:
-        y_post_fn = y_post_process
-    
-    # read all of the agent infos into memory
+def get_agent_dfs(results_root_dir, experiment_dir):
     agent2agentinfo = {}
     agent2accountinginfo = {}
     flist = glob.glob(os.path.join(results_root_dir, experiment_dir, '*.csv'))
@@ -126,6 +108,33 @@ def plot_agent(
                 agent2agentinfo[agent_num] = pd.read_csv(fp)
             elif 'accounting' in fname:
                 agent2accountinginfo[agent_num] = pd.read_csv(fp)
+    return agent2agentinfo, agent2accountinginfo
+
+def plot_agent(
+        results_root_dir,
+        keys, experiment_dir,
+        x_post_process=None, 
+        y_post_process=None,
+        y_post_kwargs=None,
+        agent_ids_to_plot=None,
+        df_name='agent_info_df',
+        x_key='date', label_prepend='', label_postpend='', 
+        min_date = None, max_date = None,
+        per_agent_label_list = None,
+        plot_kwargs_list=None):
+    if x_post_process is None:
+        x_post_fn = lambda x: x
+    else:
+        x_post_fn = x_post_process
+    if y_post_process is None:
+        y_post_fn = lambda x: x
+    else:
+        y_post_fn = y_post_process
+        if y_post_kwargs is None:
+            y_post_kwargs = {}
+    
+    # read all of the agent infos into memory
+    agent2agentinfo, agent2accountinginfo = get_agent_dfs(results_root_dir, experiment_dir)
     num_total_agents = len(agent2agentinfo)
     for ii in range(num_total_agents):
         if agent_ids_to_plot is None or ii in agent_ids_to_plot:  # assumes ii is same as agent-id
@@ -150,7 +159,7 @@ def plot_agent(
             if len(keys)==1:
                 k = keys[0]
                 x = x_post_fn(agent_df[x_key])
-                y = y_post_fn(agent_df[k])
+                y = y_post_fn(agent_df[k], **y_post_kwargs)
                 plt.plot(x, y, label=l, **plot_kwargs)
             else:
                 # get all keys and call the combine function
@@ -158,7 +167,7 @@ def plot_agent(
                 for k in keys:
                     key_data[k] = agent_df[k]
                 x = x_post_fn(agent_df[x_key])
-                y = y_post_fn(key_data)
+                y = y_post_fn(key_data, **y_post_kwargs)
                 plt.plot(x, y, label=l, **plot_kwargs)
     plt.xticks(rotation=60)
     

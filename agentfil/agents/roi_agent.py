@@ -18,7 +18,13 @@ class ROIAgent(SPAgent):
     def __init__(self, model, id, historical_power, start_date, end_date,
                  max_sealing_throughput=constants.DEFAULT_MAX_SEALING_THROUGHPUT_PIB, max_daily_rb_onboard_pib=3,
                  renewal_rate = 0.6, fil_plus_rate=0.6, 
-                 agent_optimism=4, roi_threshold=0.1):
+                 agent_optimism=4, roi_threshold=0.1, debug_mode=False):
+        """
+
+        debug_mode - if True, the agent will compute the power scheduled to be onboarded/renewed, but will not actually
+                     onboard/renew that power, but rather return the values.  This can be used for debugging
+                     or other purposes
+        """
         super().__init__(model, id, historical_power, start_date, end_date, max_sealing_throughput_pib=max_sealing_throughput)
 
         self.max_daily_rb_onboard_pib = max_daily_rb_onboard_pib
@@ -34,6 +40,8 @@ class ROIAgent(SPAgent):
 
         for d in self.duration_vec_days:
             self.agent_info_df[f'roi_estimate_{d}'] = 0
+
+        self.debug_mode = debug_mode
 
     def map_optimism_scales(self):
         self.optimism_to_price_quantile_str = {
@@ -117,8 +125,12 @@ class ROIAgent(SPAgent):
                                                                                                         pledge_needed_for_onboarding, 
                                                                                                         best_duration_yrs)
 
-            self.onboard_power(self.current_date, rb_to_onboard, qa_to_onboard, best_duration,
-                               pledge_needed_for_onboarding, pledge_repayment_value_onboard)
+            if not self.debug_mode:
+                self.onboard_power(self.current_date, rb_to_onboard, qa_to_onboard, best_duration,
+                                pledge_needed_for_onboarding, pledge_repayment_value_onboard)
+            else:
+                onboard_args_to_return = (self.current_date, rb_to_onboard, qa_to_onboard, best_duration, 
+                                          pledge_needed_for_onboarding, pledge_repayment_value_onboard)
 
             if self.renewal_rate > 0:
                 # renew available power for the same duration
@@ -132,10 +144,19 @@ class ROIAgent(SPAgent):
                                                                                                             pledge_needed_for_renewal, 
                                                                                                             best_duration_yrs)
 
-                self.renew_power(self.current_date, cc_power_to_renew, deal_power_to_renew, best_duration,
-                                pledge_needed_for_renewal, pledge_repayment_value_renew)
+                if not self.debug_mode:
+                    self.renew_power(self.current_date, cc_power_to_renew, deal_power_to_renew, best_duration,
+                                    pledge_needed_for_renewal, pledge_repayment_value_renew)
+                else:
+                    renew_args_to_return = (self.current_date, cc_power_to_renew, deal_power_to_renew, best_duration,
+                                            pledge_needed_for_renewal, pledge_repayment_value_renew)
 
+        # even if we are in debug mode, we need to step the agent b/c that updates agent internal states
+        # such as current_date
         super().step()
+
+        if self.debug_mode:
+            return onboard_args_to_return, renew_args_to_return
 
     def post_global_step(self):
         # we can update local representation of anything else that should happen after

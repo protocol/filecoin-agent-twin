@@ -18,7 +18,13 @@ class NPVAgent(SPAgent):
     def __init__(self, model, id, historical_power, start_date, end_date,
                  max_sealing_throughput=constants.DEFAULT_MAX_SEALING_THROUGHPUT_PIB, max_daily_rb_onboard_pib=3,
                  renewal_rate = 0.6, fil_plus_rate=0.6, 
-                 agent_optimism=4, agent_discount_rate_yr_pct=50):
+                 agent_optimism=4, agent_discount_rate_yr_pct=50, debug_mode=False):
+        """
+
+        debug_mode - if True, the agent will compute the power scheduled to be onboarded/renewed, but will not actually
+                     onboard/renew that power, but rather return the values.  This can be used for debugging
+                     or other purposes
+        """
         super().__init__(model, id, historical_power, start_date, end_date, max_sealing_throughput_pib=max_sealing_throughput)
 
         self.max_daily_rb_onboard_pib = max_daily_rb_onboard_pib
@@ -35,6 +41,8 @@ class NPVAgent(SPAgent):
 
         for d in self.duration_vec_days:
             self.agent_info_df[f'npv_estimate_{d}'] = 0
+
+        self.debug_mode = debug_mode
 
     def map_optimism_scales(self):
         self.optimism_to_price_quantile_str = {
@@ -77,6 +85,7 @@ class NPVAgent(SPAgent):
         
         # get the cost per sector for the duration, which in this case is just borrowing costs
         pledge_repayment_estimate = self.compute_repayment_amount_from_supply_discount_rate_model(date_in, prev_day_pledge_per_QAP, sector_duration_yrs)
+        # you get your pledge back, so we remove the pledge from the cost/sector estimate.
         cost_per_sector_estimate = pledge_repayment_estimate - prev_day_pledge_per_QAP
 
         cost_per_sector_estimate_discounted = cost_per_sector_estimate / np.exp(self.agent_discount_rate_yr * sector_duration_yrs)
@@ -112,8 +121,12 @@ class NPVAgent(SPAgent):
                                                                                                            pledge_needed_for_onboarding, 
                                                                                                            best_duration_yrs)
 
-            self.onboard_power(self.current_date, rb_to_onboard, qa_to_onboard, best_duration,
-                               pledge_needed_for_onboarding, pledge_repayment_value_onboard)
+            if not self.debug_mode:
+                self.onboard_power(self.current_date, rb_to_onboard, qa_to_onboard, best_duration,
+                                   pledge_needed_for_onboarding, pledge_repayment_value_onboard)
+            else:
+                onboard_args_to_return = (self.current_date, rb_to_onboard, qa_to_onboard, best_duration, 
+                                          pledge_needed_for_onboarding, pledge_repayment_value_onboard)
 
             # renew available power for the same duration
             if self.renewal_rate > 0:
@@ -127,10 +140,19 @@ class NPVAgent(SPAgent):
                                                                                                             pledge_needed_for_renewal, 
                                                                                                             best_duration_yrs)
 
-                self.renew_power(self.current_date, cc_power_to_renew, deal_power_to_renew, best_duration,
-                                pledge_needed_for_renewal, pledge_repayment_value_renew)
+                if not self.debug_mode:
+                    self.renew_power(self.current_date, cc_power_to_renew, deal_power_to_renew, best_duration,
+                                    pledge_needed_for_renewal, pledge_repayment_value_renew)
+                else:
+                    renew_args_to_return = (self.current_date, cc_power_to_renew, deal_power_to_renew, best_duration, 
+                                            pledge_needed_for_renewal, pledge_repayment_value_renew)
 
+        # even if we are in debug mode, we need to step the agent b/c that updates agent internal states
+        # such as current_date
         super().step()
+
+        if self.debug_mode:
+            return onboard_args_to_return, renew_args_to_return
 
     def post_global_step(self):
         # we can update local representation of anything else that should happen after
