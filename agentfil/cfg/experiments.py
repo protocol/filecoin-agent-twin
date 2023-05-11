@@ -693,3 +693,46 @@ for fil_supply_discount_rate in fil_supply_discount_rate_vec:
                                                     'filecoin_model_kwargs': {},  # do not add any policy changes, default model
                                                 }
 
+"""
+Shock experiments
+"""
+population_power_breakdown = [
+    [0.33, 0.33, 0.34],
+    [0.495, 0.495, 0.01],
+    [0.695, 0.295, 0.01],
+]
+subpopulation_terminate_pcts = [0.0, 0.3, 0.5, 0.7]
+terminate_date = date(2023, 11, 1)
+
+total_onboard_rbp = 6  # across all agents in the simulation
+renewal_rate = 0.6     # for agents which decide to stay on the network
+fil_plus_rate = 0.8    # for the mixed agents which decide to stay on the network
+sector_duration = 360
+num_agents = 3
+fil_supply_discount_rate_vec = [10, 20, 30]
+
+for population_power in population_power_breakdown:
+    agent_power_distribution = population_power
+    for subpopulation_terminate_pct in subpopulation_terminate_pcts:
+        for fil_supply_discount_rate in fil_supply_discount_rate_vec:
+            name = 'Terminate_%0.02f-FP_%0.02f-CC_%0.02f-MX_%0.02f-MaxRBP_%0.02f-RR_%0.02f-FPR_%0.02f-DR_%d' % \
+                (subpopulation_terminate_pct, 
+                 agent_power_distribution[0], agent_power_distribution[1], agent_power_distribution[2],
+                 total_onboard_rbp, renewal_rate, fil_plus_rate, fil_supply_discount_rate)
+            name2experiment[name] = {
+                'module_name': 'agentfil.cfg.exp_dca_terminate',
+                'instantiator': 'ExpDCAAgentsTerminate',
+                'instantiator_kwargs': {
+                    'num_agents':num_agents, 
+                    'agent_power_distribution':agent_power_distribution,
+                    'subpopulation_terminate_pct':subpopulation_terminate_pct,
+                    'agent_max_sealing_throughput':C.DEFAULT_MAX_SEALING_THROUGHPUT_PIB,  # a noop
+                    'max_daily_rb_onboard_pib':total_onboard_rbp, 
+                    'renewal_rate':renewal_rate, 
+                    'fil_plus_rate':fil_plus_rate, 
+                    'sector_duration': sector_duration,
+                    'fil_supply_discount_rate':fil_supply_discount_rate,
+                    'terminate_date': terminate_date,
+                },
+                'filecoin_model_kwargs': {},  # do not add any policy changes, default model
+            }

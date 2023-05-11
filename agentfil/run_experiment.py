@@ -62,11 +62,11 @@ if __name__ == '__main__':
         raise ValueError('Experiment name not found: {}'.format(args.experiment_name))
     
     if args.start_date == 'today':
-        start_date = datetime.today().date() - timedelta(days=1)
+        start_date = datetime.today().date() - timedelta(days=2)
     else:
         start_date = datetime.strptime(args.start_date, '%Y-%m-%d').date()
     if args.end_date is None:
-        forecast_length = 365*3
+        forecast_length = 365*5
         end_date = start_date + timedelta(days=forecast_length)
     else:
         end_date = datetime.strptime(args.end_date, '%Y-%m-%d').date()

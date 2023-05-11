@@ -85,3 +85,20 @@ class DCAAgent(SPAgent):
 
         if self.debug_mode:
             return onboard_args_to_return, renew_args_to_return
+
+class DCAAgentWithTerminate(DCAAgent):
+    def __init__(self, model, id, historical_power, start_date, end_date,
+                 max_sealing_throughput=constants.DEFAULT_MAX_SEALING_THROUGHPUT_PIB, max_daily_rb_onboard_pib=3, 
+                 renewal_rate=0.6, fil_plus_rate=0.6, sector_duration=365, debug_mode=False, terminate_date=None):
+        super().__init__(model, id, historical_power, start_date, end_date, max_sealing_throughput=max_sealing_throughput,
+                         max_daily_rb_onboard_pib=max_daily_rb_onboard_pib, renewal_rate=renewal_rate, fil_plus_rate=fil_plus_rate,
+                         sector_duration=sector_duration, debug_mode=debug_mode)
+        
+        self.terminate_date = terminate_date
+
+    def step(self):
+        if self.terminate_date is not None and self.current_date >= self.terminate_date:
+            # we stop onboarding and renewing power after this date
+            pass
+        else:
+            super().step()
