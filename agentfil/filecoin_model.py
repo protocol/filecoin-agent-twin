@@ -547,6 +547,12 @@ class FilecoinModel(mesa.Model):
                 self._update_circulating_supply(update_day=day_idx)
                 self._update_generated_quantities(update_day=day_idx)
                 self._update_agents(update_day=day_idx)
+            
+            # # update generated quantities manually as a test
+            # self.filecoin_df['day_pledge_per_QAP'] = constants.SECTOR_SIZE * (self.filecoin_df['day_locked_pledge']-self.filecoin_df['day_renewed_pledge'])/(self.filecoin_df['day_onboarded_qap_pib']*constants.PIB)
+            # self.filecoin_df['day_rewards_per_sector'] = constants.SECTOR_SIZE * self.filecoin_df['day_network_reward'] / (self.filecoin_df['total_qa_power_eib']*constants.EIB)
+
+
         else:
             # NOTE: cum_network_reward was computed above from power inputs, use that rather than historical data
             # NOTE: vesting was computed above and is a static model, so use the precomputed vesting information
@@ -569,13 +575,6 @@ class FilecoinModel(mesa.Model):
             self.filecoin_df.loc[final_historical_data_idx+1, ["network_locked"]] = locked_fil_zero
 
         ############################################################################################################
-        day_onboarded_power_QAP = self.filecoin_df.loc[day_idx, "day_onboarded_qap_pib"] * constants.PIB   # in bytes
-        network_QAP = self.filecoin_df["total_qa_power_eib"] * constants.EIB                  # in bytes
-
-        # NOTE: this only works if compute_cs_from_networkdatastart is set to True
-        print('Computing initial generated quantities...')
-        self.filecoin_df['day_pledge_per_QAP'] = constants.SECTOR_SIZE * (self.filecoin_df['day_locked_pledge']-self.filecoin_df['day_renewed_pledge'])/day_onboarded_power_QAP
-        self.filecoin_df['day_rewards_per_sector'] = constants.SECTOR_SIZE * self.filecoin_df['day_network_reward'] / network_QAP
         
     def _compute_macro(self, date_in):
         # compute Macro econometrics (Power statistics)
@@ -820,11 +819,13 @@ class FilecoinModel(mesa.Model):
         day_renewed_pledge = self.filecoin_df.loc[day_idx, 'day_renewed_pledge']
         # FLAG: avoid division by zero - does it make sense to do this?
         day_onboarded_power_QAP = max(self.filecoin_df.loc[day_idx, "day_onboarded_qap_pib"] * constants.PIB, constants.MIN_VALUE)   # in bytes
+        # day_onboarded_power_QAP = self.filecoin_df.loc[day_idx, "day_onboarded_qap_pib"] * constants.PIB
         self.filecoin_df.loc[day_idx, 'day_pledge_per_QAP'] = constants.SECTOR_SIZE * (day_locked_pledge-day_renewed_pledge)/day_onboarded_power_QAP
 
         day_network_reward = self.filecoin_df.iloc[day_idx]["day_network_reward"]
         # FLAG: avoid division by zero - does it make sense to do this?
         network_QAP = max(self.filecoin_df.iloc[day_idx]["total_qa_power_eib"] * constants.EIB, constants.MIN_VALUE)                  # in bytes
+        # network_QAP = self.filecoin_df.iloc[day_idx]["total_qa_power_eib"] * constants.EIB
         self.filecoin_df.loc[day_idx, 'day_rewards_per_sector'] = constants.SECTOR_SIZE * day_network_reward / network_QAP
         
         
