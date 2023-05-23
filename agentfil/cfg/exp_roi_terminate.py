@@ -127,7 +127,7 @@ def generate_terminate_experiments(output_fp):
     max_rr_vec = [0.4, 0.6, 0.8, 1.0]
     min_roi_vec = [0.1, 0.2, 0.3]
     max_roi_vec = [0.8, 0.9, 1.0]
-    roi_agent_optimism = [3,4]
+    roi_agent_optimism_vec = [3,4]
     fil_plus_rate = 0.8    # for the mixed agents which decide to stay on the network
     fil_supply_discount_rate = 10  # a noop when using ROI agents
 
@@ -138,7 +138,7 @@ def generate_terminate_experiments(output_fp):
                 for max_rr in max_rr_vec:
                     for min_roi in min_roi_vec:
                         for max_roi in max_roi_vec:
-                            for roi_agent_optimism in roi_agent_optimism:
+                            for roi_agent_optimism in roi_agent_optimism_vec:
                                 name = 'ROI_%d_%0.2f_%0.02f-Terminate_%0.02f-FP_%0.02f-CC_%0.02f-MX_%0.02f-MinRBP_%0.02f-MaxRBP_%0.02f-MinRR_%0.02f-MaxRR_%0.02f-FPR_%0.02f-DR_%d' % \
                                     (roi_agent_optimism, min_roi, max_roi, subpopulation_terminate_pct, 
                                         agent_power_distribution[0], agent_power_distribution[1], agent_power_distribution[2],
