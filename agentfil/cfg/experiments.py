@@ -755,11 +755,11 @@ min_rr = 0.0
 max_rr_vec = [0.4, 0.8]
 min_roi_vec = [0.1, 0.2, 0.3]
 max_roi_vec = [0.8, 0.9, 1.0]
-roi_agent_optimism_vec = [3,4]
+roi_agent_optimism_vec = [2,3,4]
 fil_plus_rate = 0.8    # for the mixed agents which decide to stay on the network
 sector_duration = 360
 num_agents = 3
-fil_supply_discount_rate = 10  # a noop when using ROI agents
+fil_supply_discount_rate = [10,20,30]  # a noop when using ROI agents
 
 for population_power in population_power_breakdown:
     agent_power_distribution = population_power
