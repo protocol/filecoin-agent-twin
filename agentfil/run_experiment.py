@@ -38,7 +38,7 @@ def run_experiment(auth_config, experiment_name, experiment_output_dir,
                                    agent_power_distributions=agent_power_distributions,
                                    compute_cs_from_networkdatastart=True, use_historical_gas=False,
                                    price_process_kwargs=price_process_kwargs,
-                                   minting_process_kwargs=minting_process_kwargs,
+                                   rewards_per_sector_process_kwargs=minting_process_kwargs,
                                    fil_supply_discount_rate_process_kwargs=fil_supply_discount_rate_process_kwargs,
                                    **filecoin_model_kwargs)
     for _ in tqdm(range(forecast_length), disable=not verbose):

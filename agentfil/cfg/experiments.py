@@ -746,13 +746,13 @@ population_power_breakdown = [
     [0.695, 0.295, 0.01],
     [0.295, 0.695, 0.01],
 ]
-subpopulation_terminate_pcts = [0.0, 0.3, 0.5, 0.7, 0.9]
+subpopulation_terminate_pcts = [0.0, 0.3, 0.5, 0.7]
 terminate_date = date(2023, 11, 1)
 
 total_min_onboard_rbp = 0
 total_max_onboard_rbp_vec = [3,6,15]
 min_rr = 0.0
-max_rr_vec = [0.4, 0.6, 0.8, 1.0]
+max_rr_vec = [0.4, 0.8]
 min_roi_vec = [0.1, 0.2, 0.3]
 max_roi_vec = [0.8, 0.9, 1.0]
 roi_agent_optimism_vec = [3,4]
@@ -796,5 +796,12 @@ for population_power in population_power_breakdown:
                                     'fil_supply_discount_rate':fil_supply_discount_rate,
                                     'terminate_date': terminate_date,
                                 },
-                                'filecoin_model_kwargs': {},  # do not add any policy changes, default model
+                                'filecoin_model_kwargs': {
+                                    # update ROI forecasts more frequently so agents can have upto date info for making decisions
+                                    # this slows down the simulation slightly, but is important for this particular simulation
+                                    'rewards_per_sector_process_kwargs': {
+                                        'update_every_days':30,
+                                        'linear_forecast_deviation_pct': 0.3
+                                    }
+                                },
                             }

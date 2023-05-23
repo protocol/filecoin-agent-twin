@@ -119,15 +119,15 @@ def generate_terminate_experiments(output_fp):
         [0.695, 0.295, 0.01],
         [0.295, 0.695, 0.01],
     ]
-    subpopulation_terminate_pcts = [0.0, 0.3, 0.5, 0.7, 0.9]
+    subpopulation_terminate_pcts = [0.0, 0.3, 0.5, 0.7]
 
     total_min_onboard_rbp = 0
     total_max_onboard_rbp_vec = [3,6,15]
     min_rr = 0.0
-    max_rr_vec = [0.4, 0.6, 0.8, 1.0]
-    min_roi_vec = [0.1, 0.2, 0.3]
-    max_roi_vec = [0.8, 0.9, 1.0]
-    roi_agent_optimism_vec = [3,4]
+    max_rr_vec = [0.4, 0.8]
+    min_roi_vec = [0.1, 0.3]
+    max_roi_vec = [0.8, 1.0]
+    roi_agent_optimism_vec = [2,4]
     fil_plus_rate = 0.8    # for the mixed agents which decide to stay on the network
     fil_supply_discount_rate = 10  # a noop when using ROI agents
 

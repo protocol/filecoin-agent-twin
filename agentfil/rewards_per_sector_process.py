@@ -19,6 +19,7 @@ class RewardsPerSectorProcess:
     """
     def __init__(self, filecoin_model, 
                  forecast_history=180, update_every_days=90,
+                 linear_forecast_deviation_pct=0.25,
                  num_warmup_mcmc: int = 500,
                  num_samples_mcmc: int = 100,
                  seasonality_mcmc: int = 1000,
@@ -63,6 +64,9 @@ class RewardsPerSectorProcess:
         self.keep_power_predictions = keep_power_predictions
         self.random_state = np.random.RandomState(seed)
 
+        # linear prediction options
+        self.linear_forecast_deviation_pct = linear_forecast_deviation_pct
+
         self.model = filecoin_model
 
         start_date = self.model.start_date
@@ -96,9 +100,8 @@ class RewardsPerSectorProcess:
             # create a simplistic extension of average historical power to the future
             # adding this in until we can diagnose the nans from MCMC
             num_mc = self.num_chains_mcmc * self.num_samples_mcmc
-            deviation_pct = 0.25
-            rb_onboard_forecast_pib = np.mean(historical_rb_onboard) + self.random_state.normal(0, np.std(historical_rb_onboard) * deviation_pct, size=(num_mc, forecast_length))
-            qa_onboard_forecast_pib = np.mean(historical_qa_onboard) + self.random_state.normal(0, np.std(historical_qa_onboard) * deviation_pct, size=(num_mc, forecast_length))
+            rb_onboard_forecast_pib = np.mean(historical_rb_onboard) + self.random_state.normal(0, np.std(historical_rb_onboard) * self.linear_forecast_deviation_pct, size=(num_mc, forecast_length))
+            qa_onboard_forecast_pib = np.mean(historical_qa_onboard) + self.random_state.normal(0, np.std(historical_qa_onboard) * self.linear_forecast_deviation_pct, size=(num_mc, forecast_length))
             rb_onboard_forecast_pib = np.maximum(rb_onboard_forecast_pib, constants.MIN_VALUE)
             qa_onboard_forecast_pib = np.maximum(qa_onboard_forecast_pib, constants.MIN_VALUE)
             # ##################################################################################################

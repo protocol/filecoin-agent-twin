@@ -65,7 +65,7 @@ class FilecoinModel(mesa.Model):
                  max_day_onboard_rbp_pib=constants.DEFAULT_MAX_DAY_ONBOARD_RBP_PIB,
                  agent_types=None, agent_kwargs_list=None, agent_power_distributions=None,
                  compute_cs_from_networkdatastart=True, use_historical_gas=False,
-                 price_process_kwargs=None, minting_process_kwargs=None, 
+                 price_process_kwargs=None, rewards_per_sector_process_kwargs=None, 
                  capital_inflow_process_kwargs=None, capital_inflow_distribution_policy=None, capital_inflow_distribution_policy_kwargs=None,
                  fil_supply_discount_rate_process_kwargs=None,
                  sdm=None, sdm_kwargs=None,  # TODO: try to generalize this as a set of possible protocol updates
@@ -130,9 +130,9 @@ class FilecoinModel(mesa.Model):
         self.price_process_kwargs = price_process_kwargs
         if self.price_process_kwargs is None:
             self.price_process_kwargs = {}
-        self.minting_process_kwargs = minting_process_kwargs
-        if self.minting_process_kwargs is None:
-            self.minting_process_kwargs = {}
+        self.rewards_per_sector_process_kwargs = rewards_per_sector_process_kwargs
+        if self.rewards_per_sector_process_kwargs is None:
+            self.rewards_per_sector_process_kwargs = {}
         self.capital_inflow_process_kwargs = capital_inflow_process_kwargs
         if self.capital_inflow_process_kwargs is None:
             self.capital_inflow_process_kwargs = {}
@@ -247,7 +247,7 @@ class FilecoinModel(mesa.Model):
         self.global_forecast_df = pd.concat([self.global_forecast_df, pd.DataFrame({'date': future_dates})], ignore_index=True)
         
         #self.price_process = price_process.PriceProcess(self, **self.price_process_kwargs)
-        self.minting_process = rewards_per_sector_process.RewardsPerSectorProcess(self, **self.minting_process_kwargs)
+        self.minting_process = rewards_per_sector_process.RewardsPerSectorProcess(self, **self.rewards_per_sector_process_kwargs)
         #self.capital_inflow_process = capital_inflow_process.CapitalInflowProcess(self, **self.capital_inflow_process_kwargs)
         self.fil_supply_discount_rate_process = fil_supply_discount_rate_process.FILSupplyDiscountRateProcess(self, **self.fil_supply_discount_rate_process_kwargs)
 
