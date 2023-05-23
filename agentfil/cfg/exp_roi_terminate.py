@@ -109,6 +109,15 @@ class ExpROIAdaptDCATerminate(ExperimentCfg):
         
         return fil_supply_discount_rate_process_kwargs
     
+    def get_rewards_per_sector_process_cfg(self) -> Dict:
+        return {
+            'update_every_days':30,
+            'linear_forecast_deviation_pct': 0.3,
+            'verbose': False,
+            'keep_previous_predictions': False,
+            'keep_power_predictions': False,
+        }
+    
 def generate_terminate_experiments(output_fp):
     print('Writing to {}'.format(output_fp))
     experiment_names = []
