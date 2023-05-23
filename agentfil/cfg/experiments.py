@@ -744,52 +744,56 @@ population_power_breakdown = [
     [0.33, 0.33, 0.34],
     [0.495, 0.495, 0.01],
     [0.695, 0.295, 0.01],
+    [0.295, 0.695, 0.01],
 ]
-subpopulation_terminate_pcts = [0.0, 0.3, 0.5, 0.7]
+subpopulation_terminate_pcts = [0.0, 0.3, 0.5, 0.7, 0.9]
 terminate_date = date(2023, 11, 1)
 
-total_min_onboard_rbp = 3
-total_max_onboard_rbp = 15
-min_rr = 0.4
-max_rr = 0.8
-min_roi = 0.1
-max_roi = 0.5
-roi_agent_optimism = 4
+total_min_onboard_rbp = 0
+total_max_onboard_rbp_vec = [3,6,15]
+min_rr = 0.0
+max_rr_vec = [0.4, 0.6, 0.8, 1.0]
+min_roi_vec = [0.1, 0.2, 0.3]
+max_roi_vec = [0.8, 0.9, 1.0]
+roi_agent_optimism = [3,4]
 fil_plus_rate = 0.8    # for the mixed agents which decide to stay on the network
 sector_duration = 360
 num_agents = 3
-fil_supply_discount_rate_vec = [10, 20, 30]
+fil_supply_discount_rate = 10  # a noop when using ROI agents
 
 for population_power in population_power_breakdown:
     agent_power_distribution = population_power
     for subpopulation_terminate_pct in subpopulation_terminate_pcts:
-        for fil_supply_discount_rate in fil_supply_discount_rate_vec:
-            name = 'ROI_%d_%0.2f_%0.02f-Terminate_%0.02f-FP_%0.02f-CC_%0.02f-MX_%0.02f-MinRBP_%0.02f-MaxRBP_%0.02f-MinRR_%0.02f-MaxRR_%0.02f-FPR_%0.02f-DR_%d' % \
-                (roi_agent_optimism, min_roi, max_roi, subpopulation_terminate_pct, 
-                 agent_power_distribution[0], agent_power_distribution[1], agent_power_distribution[2],
-                 total_min_onboard_rbp, total_max_onboard_rbp, min_rr, max_rr,
-                 fil_plus_rate, fil_supply_discount_rate)
-            name2experiment[name] = {
-                'module_name': 'agentfil.cfg.exp_roi_terminate',
-                'instantiator': 'ExpROIAdaptDCATerminate',
-                'instantiator_kwargs': {
-                    'num_agents':num_agents, 
-                    'agent_power_distribution':agent_power_distribution,
-                    'subpopulation_terminate_pct':subpopulation_terminate_pct,
-                    'max_sealing_throughput':C.DEFAULT_MAX_SEALING_THROUGHPUT_PIB,
+        for total_max_onboard_rbp in total_max_onboard_rbp_vec:
+            for max_rr in max_rr_vec:
+                for min_roi in min_roi_vec:
+                    for max_roi in max_roi_vec:
+                        name = 'ROI_%d_%0.2f_%0.02f-Terminate_%0.02f-FP_%0.02f-CC_%0.02f-MX_%0.02f-MinRBP_%0.02f-MaxRBP_%0.02f-MinRR_%0.02f-MaxRR_%0.02f-FPR_%0.02f-DR_%d' % \
+                            (roi_agent_optimism, min_roi, max_roi, subpopulation_terminate_pct, 
+                                agent_power_distribution[0], agent_power_distribution[1], agent_power_distribution[2],
+                                total_min_onboard_rbp, total_max_onboard_rbp, min_rr, max_rr,
+                                fil_plus_rate, fil_supply_discount_rate)
+                        name2experiment[name] = {
+                            'module_name': 'agentfil.cfg.exp_roi_terminate',
+                            'instantiator': 'ExpROIAdaptDCATerminate',
+                            'instantiator_kwargs': {
+                                'num_agents':num_agents, 
+                                'agent_power_distribution':agent_power_distribution,
+                                'subpopulation_terminate_pct':subpopulation_terminate_pct,
+                                'max_sealing_throughput':C.DEFAULT_MAX_SEALING_THROUGHPUT_PIB,
 
-                    'min_daily_rb_onboard_pib':total_min_onboard_rbp,
-                    'max_daily_rb_onboard_pib':total_max_onboard_rbp,
-                    'min_renewal_rate':min_rr,
-                    'max_renewal_rate':max_rr,
-                    'fil_plus_rate':fil_plus_rate,
-                    'min_roi':min_roi,
-                    'max_roi':max_roi,
-                    'roi_agent_optimism':roi_agent_optimism,
+                                'min_daily_rb_onboard_pib':total_min_onboard_rbp,
+                                'max_daily_rb_onboard_pib':total_max_onboard_rbp,
+                                'min_renewal_rate':min_rr,
+                                'max_renewal_rate':max_rr,
+                                'fil_plus_rate':fil_plus_rate,
+                                'min_roi':min_roi,
+                                'max_roi':max_roi,
+                                'roi_agent_optimism':roi_agent_optimism,
 
-                    'sector_duration': sector_duration,
-                    'fil_supply_discount_rate':fil_supply_discount_rate,
-                    'terminate_date': terminate_date,
-                },
-                'filecoin_model_kwargs': {},  # do not add any policy changes, default model
-            }
+                                'sector_duration': sector_duration,
+                                'fil_supply_discount_rate':fil_supply_discount_rate,
+                                'terminate_date': terminate_date,
+                            },
+                            'filecoin_model_kwargs': {},  # do not add any policy changes, default model
+                        }
