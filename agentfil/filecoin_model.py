@@ -716,7 +716,7 @@ class FilecoinModel(mesa.Model):
             original_pledge = agent.accounting_df.loc[day_idx, "scheduled_pledge_release"]
 
             # scale it by the amount that was renewed
-            renewal_rate = float(day_renewed_qap)/float(day_sched_expire_qap)
+            renewal_rate = float(day_renewed_qap)/float(day_sched_expire_qap) if day_sched_expire_qap > 0 else 1
             original_pledge_for_renew = original_pledge * renewal_rate
             renews_locked = max(original_pledge_for_renew, renews_locked)
 
