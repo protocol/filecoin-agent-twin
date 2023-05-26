@@ -10,7 +10,8 @@ from ..power import cc_power, deal_power
 
 
 class SPAgent(mesa.Agent):
-    def __init__(self, model, agent_id, agent_seed, start_date, end_date, max_sealing_throughput_pib=constants.DEFAULT_MAX_SEALING_THROUGHPUT_PIB):
+    def __init__(self, model, agent_id, agent_seed, start_date, end_date, 
+                 max_sealing_throughput_pib=constants.DEFAULT_MAX_SEALING_THROUGHPUT_PIB):
         self.unique_id = agent_id  # the field unique_id is required by the framework
         self.model = model
 
@@ -44,6 +45,7 @@ class SPAgent(mesa.Agent):
         self.accounting_df['renew_pledge_FIL'] = 0
         self.accounting_df['onboard_scheduled_pledge_release_FIL'] = 0
         self.accounting_df['renew_scheduled_pledge_release_FIL'] = 0
+        self.accounting_df['scheduled_pledge_release'] = 0
         # self.accounting_df['capital_inflow_FIL'] = 0
         self.accounting_df['pledge_requested_FIL'] = 0
         self.accounting_df['pledge_repayment_FIL'] = 0
@@ -59,7 +61,7 @@ class SPAgent(mesa.Agent):
         self.agent_info_df['deal_onboarded_duration'] = 0
         self.agent_info_df['deal_renewed_duration'] = 0
 
-        self.allocate_historical_power(agent_seed)
+        self.allocate_historical_metrics(agent_seed)
 
     def step(self):
         """
@@ -249,7 +251,7 @@ class SPAgent(mesa.Agent):
         }
         return out_dict
 
-    def allocate_historical_power(self, agent_seed):
+    def allocate_historical_metrics(self, agent_seed):
         # need to distribute the power in the historical_power information from
         # day=0 to day=self.current_day-1
         historical_df = agent_seed['historical_power']
@@ -291,6 +293,10 @@ class SPAgent(mesa.Agent):
             # self.scheduled_expire_pledge[global_ii] = row['total_pledge']
 
             global_ii += 1
+
+        # add in the scheduled expirations
+        # TODO: do we need to ensure dates are aligned?
+        self.accounting_df['scheduled_pledge_release'] = agent_seed['scheduled_pledge_release']
 
     
     def _get_available_FIL(self, date_in):
