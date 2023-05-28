@@ -746,7 +746,7 @@ population_power_breakdown = [
     [0.695, 0.295, 0.01],
     [0.295, 0.695, 0.01],
 ]
-subpopulation_terminate_pcts = [0.0, 0.3, 0.5, 0.7]
+subpopulation_terminate_pcts = [0.3, 0.5, 0.7]
 terminate_date = date(2023, 11, 1)
 
 total_min_onboard_rbp = 0

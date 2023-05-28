@@ -258,6 +258,8 @@ class ROIAgentDynamicOnboard(SPAgent):
         # NOTE: we need to use yesterday's metrics b/c today's haven't yet been aggregated by the system yet
         prev_day_pledge_per_QAP = self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_pledge_per_QAP']
 
+        # print(date_in, 'prev_day_pledge_per_QAP', prev_day_pledge_per_QAP)
+
         # TODO: make this an iterative update rather than full-estimate every day
         # NOTE: this assumes that the pledge remains constant. This is not true, but a zeroth-order approximation
         future_rewards_per_sector_estimate = self.forecast_day_rewards_per_sector(date_in, sector_duration)
@@ -266,7 +268,10 @@ class ROIAgentDynamicOnboard(SPAgent):
         sector_duration_yrs = sector_duration / 365.
         pledge_repayment_estimate = self.compute_repayment_amount_from_supply_discount_rate_model(date_in, prev_day_pledge_per_QAP, sector_duration_yrs)
         cost_per_sector_estimate = pledge_repayment_estimate - prev_day_pledge_per_QAP
-        roi_estimate = (future_rewards_per_sector_estimate.sum() - cost_per_sector_estimate) / prev_day_pledge_per_QAP
+        if prev_day_pledge_per_QAP == 0:
+            roi_estimate = self.max_roi
+        else:
+            roi_estimate = (future_rewards_per_sector_estimate.sum() - cost_per_sector_estimate) / prev_day_pledge_per_QAP
         
         # annualize it so that we can have the same frame of reference when comparing different sector durations
         duration_yr = sector_duration / 365.

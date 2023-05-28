@@ -829,6 +829,8 @@ class FilecoinModel(mesa.Model):
         day_onboarded_power_QAP = max(self.filecoin_df.loc[day_idx, "day_onboarded_qap_pib"] * constants.PIB, constants.MIN_VALUE)   # in bytes
         self.filecoin_df.loc[day_idx, 'day_pledge_per_QAP'] = constants.SECTOR_SIZE * (day_locked_pledge-day_renewed_pledge)/day_onboarded_power_QAP
 
+        print(self.current_date, day_locked_pledge, day_renewed_pledge, day_onboarded_power_QAP, self.filecoin_df.loc[day_idx, 'day_pledge_per_QAP'])
+
         day_network_reward = self.filecoin_df.iloc[day_idx]["day_network_reward"]
         # FLAG: avoid division by zero - does it make sense to do this?
         network_QAP = max(self.filecoin_df.iloc[day_idx]["total_qa_power_eib"] * constants.EIB, constants.MIN_VALUE)                  # in bytes

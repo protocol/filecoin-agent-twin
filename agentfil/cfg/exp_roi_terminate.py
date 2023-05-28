@@ -44,8 +44,8 @@ class ExpROIAdaptDCATerminate(ExperimentCfg):
         self.roi_agent_max_renewal_rate = max_renewal_rate
 
         # pertinent to terminate agent only
-        self.terminate_agent_max_daily_rb_onboard_pib = min_daily_rb_onboard_pib
-        self.terminate_agent_renewal_rate = min_renewal_rate
+        self.terminate_agent_max_daily_rb_onboard_pib = max_daily_rb_onboard_pib
+        self.terminate_agent_renewal_rate = max_daily_rb_onboard_pib
         self.terminate_agent_sector_duration = sector_duration
         
         # common to both agents
@@ -83,7 +83,8 @@ class ExpROIAdaptDCATerminate(ExperimentCfg):
             agent_kwargs_vec.append(agent_kwargs)
             agent_power_distribution.append(roi_agent_power)
 
-            terminate_agent_power = self.agent_power_distribution[ii] * self.subpopulation_terminate_pct
+            terminate_power_multiplier = self.subpopulation_terminate_pct if self.subpopulation_terminate_pct > 0 else 1
+            terminate_agent_power = self.agent_power_distribution[ii] * terminate_power_multiplier
             agent_onboard_pib = self.terminate_agent_max_daily_rb_onboard_pib * terminate_agent_power
             agent_with_terminate_kwargs = {
                 'max_daily_rb_onboard_pib': agent_onboard_pib,
@@ -111,7 +112,8 @@ class ExpROIAdaptDCATerminate(ExperimentCfg):
     
     def get_rewards_per_sector_process_cfg(self) -> Dict:
         return {
-            'update_every_days':30,
+            # 'update_every_days':30,
+            'update_every_days':180,
             'linear_forecast_deviation_pct': 0.3,
             'verbose': False,
             'keep_previous_predictions': False,
@@ -128,7 +130,7 @@ def generate_terminate_experiments(output_fp):
         [0.695, 0.295, 0.01],
         [0.295, 0.695, 0.01],
     ]
-    subpopulation_terminate_pcts = [0.0, 0.3, 0.5, 0.7]
+    subpopulation_terminate_pcts = [0.3, 0.5, 0.7]
 
     total_min_onboard_rbp = 0
     total_max_onboard_rbp_vec = [3,6,15]
