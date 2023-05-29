@@ -142,6 +142,8 @@ class DCAAgentWithTerminate(SPAgent):
                 cc_power_to_renew = cc_power*self.renewal_rate 
                 deal_power_to_renew = deal_power*self.renewal_rate  
 
+                # print('DCATerminate[%d]:' % (self.unique_id,), se_power_dict, cc_power_to_renew, deal_power_to_renew)
+
                 pledge_needed_for_renewal = (cc_power_to_renew + deal_power_to_renew) * pledge_per_pib
                 pledge_repayment_value_renew = self.compute_repayment_amount_from_supply_discount_rate_model(self.current_date, 
                                                                                                             pledge_needed_for_renewal, 

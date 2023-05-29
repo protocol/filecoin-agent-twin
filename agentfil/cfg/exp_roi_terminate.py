@@ -4,7 +4,7 @@ import numpy as np
 
 from agentfil.cfg.experiment_cfg import ExperimentCfg
 from agentfil.agents.dca_agent import DCAAgentWithTerminate
-from agentfil.agents.roi_agent import ROIAgentDynamicOnboard
+from agentfil.agents.roi_agent import ROIAgent, ROIAgentDynamicOnboard
 import agentfil.constants as C
 
 import argparse
@@ -45,7 +45,7 @@ class ExpROIAdaptDCATerminate(ExperimentCfg):
 
         # pertinent to terminate agent only
         self.terminate_agent_max_daily_rb_onboard_pib = max_daily_rb_onboard_pib
-        self.terminate_agent_renewal_rate = max_daily_rb_onboard_pib
+        self.terminate_agent_renewal_rate = max_renewal_rate
         self.terminate_agent_sector_duration = sector_duration
         
         # common to both agents
@@ -57,6 +57,7 @@ class ExpROIAdaptDCATerminate(ExperimentCfg):
 
     def get_agent_cfg(self) -> Tuple[List, List, List]:
         agent_types = [ROIAgentDynamicOnboard, DCAAgentWithTerminate] * self.num_agents
+        # agent_types = [ROIAgent, DCAAgentWithTerminate] * self.num_agents
         agent_power_distribution = []
         
         agent_kwargs_vec = []
@@ -68,11 +69,11 @@ class ExpROIAdaptDCATerminate(ExperimentCfg):
             elif ii == 2:
                 agent_fil_plus_rate = self.fil_plus_rate  # this is the mixed agent
             
-            roi_agent_power = self.agent_power_distribution[ii] * (1-self.subpopulation_terminate_pct)
+            roi_agent_power_pct = self.agent_power_distribution[ii] * (1-self.subpopulation_terminate_pct)
             agent_kwargs = {
                 'max_sealing_throughput': self.agent_max_sealing_throughput,
-                'min_daily_rb_onboard_pib': self.roi_agent_min_daily_rb_onboard_pib * roi_agent_power,
-                'max_daily_rb_onboard_pib': self.roi_agent_max_daily_rb_onboard_pib * roi_agent_power,
+                'min_daily_rb_onboard_pib': self.roi_agent_min_daily_rb_onboard_pib * roi_agent_power_pct,
+                'max_daily_rb_onboard_pib': self.roi_agent_max_daily_rb_onboard_pib * roi_agent_power_pct,
                 'min_renewal_rate': self.roi_agent_min_renewal_rate,
                 'max_renewal_rate': self.roi_agent_max_renewal_rate,
                 'fil_plus_rate': agent_fil_plus_rate,
@@ -80,12 +81,24 @@ class ExpROIAdaptDCATerminate(ExperimentCfg):
                 'max_roi': self.roi_agent_max_roi,
                 'agent_optimism': self.roi_agent_optimism
             }
+            # agent_kwargs = {
+            #     'max_sealing_throughput': self.agent_max_sealing_throughput,
+            #     # 'min_daily_rb_onboard_pib': self.roi_agent_min_daily_rb_onboard_pib * roi_agent_power,
+            #     'max_daily_rb_onboard_pib': self.roi_agent_max_daily_rb_onboard_pib * roi_agent_power_pct,
+            #     # 'min_renewal_rate': self.roi_agent_min_renewal_rate,
+            #     'renewal_rate': self.roi_agent_max_renewal_rate,
+            #     'fil_plus_rate': agent_fil_plus_rate,
+            #     # 'min_roi': self.roi_agent_min_roi,
+            #     # 'max_roi': self.roi_agent_max_roi,
+            #     'roi_threshold': self.roi_agent_min_roi,
+            #     'agent_optimism': self.roi_agent_optimism
+            # }
             agent_kwargs_vec.append(agent_kwargs)
-            agent_power_distribution.append(roi_agent_power)
+            agent_power_distribution.append(roi_agent_power_pct)
 
             terminate_power_multiplier = self.subpopulation_terminate_pct if self.subpopulation_terminate_pct > 0 else 1
-            terminate_agent_power = self.agent_power_distribution[ii] * terminate_power_multiplier
-            agent_onboard_pib = self.terminate_agent_max_daily_rb_onboard_pib * terminate_agent_power
+            terminate_agent_power_pct = self.agent_power_distribution[ii] * terminate_power_multiplier
+            agent_onboard_pib = self.terminate_agent_max_daily_rb_onboard_pib * terminate_agent_power_pct
             agent_with_terminate_kwargs = {
                 'max_daily_rb_onboard_pib': agent_onboard_pib,
                 'max_sealing_throughput': self.agent_max_sealing_throughput,
@@ -95,7 +108,7 @@ class ExpROIAdaptDCATerminate(ExperimentCfg):
                 'terminate_date': self.terminate_date,
             }
             agent_kwargs_vec.append(agent_with_terminate_kwargs)
-            agent_power_distribution.append(terminate_agent_power)
+            agent_power_distribution.append(terminate_agent_power_pct)
 
         return agent_types, agent_kwargs_vec, agent_power_distribution
     
@@ -112,9 +125,8 @@ class ExpROIAdaptDCATerminate(ExperimentCfg):
     
     def get_rewards_per_sector_process_cfg(self) -> Dict:
         return {
-            # 'update_every_days':30,
-            'update_every_days':180,
-            'linear_forecast_deviation_pct': 0.3,
+            'update_every_days':30,
+            'linear_forecast_deviation_pct': 0.25,
             'verbose': False,
             'keep_previous_predictions': False,
             'keep_power_predictions': False,
@@ -132,9 +144,9 @@ def generate_terminate_experiments(output_fp):
     ]
     subpopulation_terminate_pcts = [0.3, 0.5, 0.7]
 
-    total_min_onboard_rbp = 0
+    total_min_onboard_rbp = 1
     total_max_onboard_rbp_vec = [3,6,15]
-    min_rr = 0.0
+    min_rr = 0.2
     max_rr_vec = [0.4, 0.8]
     min_roi_vec = [0.1, 0.3]
     max_roi_vec = [0.8, 1.0]

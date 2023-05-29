@@ -338,7 +338,6 @@ class FilecoinModel(mesa.Model):
         assert len(self.agent_power_distributions) == self.num_agents
         assert np.isclose(sum(self.agent_power_distributions), 1.0)
 
-        assert len(self.agent_power_distributions) == self.num_agents
         if agent_kwargs_list is not None:
             assert len(agent_kwargs_list) == self.num_agents
 
@@ -403,6 +402,7 @@ class FilecoinModel(mesa.Model):
     def _seed_agents(self, agent_types=None, agent_kwargs_list=None):
         for ii in range(self.num_agents):
             agent_power_pct = self.agent_power_distributions[ii]
+            print('seeding agent', ii, 'with power pct', agent_power_pct)
             agent_historical_df = self.df_historical.drop('date', axis=1) * agent_power_pct
             agent_historical_df['date'] = self.df_historical['date']
             agent_future_df = self.df_future.drop('date', axis=1) * agent_power_pct
@@ -611,6 +611,14 @@ class FilecoinModel(mesa.Model):
         # if total_onboarded_rb_delta > constants.MAX_DAY_ONBOARD_RBP_PIB:
         #     raise ValueError("Agents are trying to onboard more than the max allowed RBP PIB per day by a total of: %0.02f" % \
         #         (total_onboarded_rb_delta - constants.MAX_DAY_ONBOARD_RBP_PIB))
+
+        # print('date_in ->', date_in, 
+        #       'total_onboarded_rb_delta ->', total_onboarded_rb_delta, 
+        #       'total_renewed_rb_delta ->', total_renewed_rb_delta,
+        #       'total_se_rb_delta ->', total_se_rb_delta,
+        #       'total_terminated_rb_delta ->', total_terminated_rb_delta,
+        #       'total_rb_delta ->', total_rb_delta,
+        # )
 
         out_dict = {
             'date': date_in,
@@ -821,6 +829,7 @@ class FilecoinModel(mesa.Model):
 
     def _update_generated_quantities(self, update_day=None):
         day_idx = self.current_day if update_day is None else update_day
+        update_date = self.filecoin_df.iloc[day_idx]['date']
 
         # add ROI to trajectory df
         day_locked_pledge = self.filecoin_df.loc[day_idx, 'day_locked_pledge']
@@ -829,7 +838,7 @@ class FilecoinModel(mesa.Model):
         day_onboarded_power_QAP = max(self.filecoin_df.loc[day_idx, "day_onboarded_qap_pib"] * constants.PIB, constants.MIN_VALUE)   # in bytes
         self.filecoin_df.loc[day_idx, 'day_pledge_per_QAP'] = constants.SECTOR_SIZE * (day_locked_pledge-day_renewed_pledge)/day_onboarded_power_QAP
 
-        print(self.current_date, day_locked_pledge, day_renewed_pledge, day_onboarded_power_QAP, self.filecoin_df.loc[day_idx, 'day_pledge_per_QAP'])
+        # print(update_date, day_locked_pledge, day_renewed_pledge, day_onboarded_power_QAP, self.filecoin_df.loc[day_idx, 'day_pledge_per_QAP'])
 
         day_network_reward = self.filecoin_df.iloc[day_idx]["day_network_reward"]
         # FLAG: avoid division by zero - does it make sense to do this?

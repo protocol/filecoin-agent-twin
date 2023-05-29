@@ -18,7 +18,7 @@ def generate_experiments(output_fp):
     experiment_names = []
 
     max_daily_rb_onboard_pib_vec = [4, 6, 8]
-    renewal_rate_vec = [0.4, 0.5, 0.6, 0.7, 0.8]
+    renewal_rate_vec = [0.6, 0.7, 0.8]
     fil_plus_rate_vec = [.4, .6, .8]
     sector_duration = 360
     for max_daily_rb_onboard_pib in max_daily_rb_onboard_pib_vec:

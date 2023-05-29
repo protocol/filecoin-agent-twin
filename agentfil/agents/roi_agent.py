@@ -31,10 +31,12 @@ class ROIAgent(SPAgent):
         self.renewal_rate = renewal_rate
         self.fil_plus_rate = fil_plus_rate
 
+        print(f"ROI agent {id} - max_daily_rb_onboard_pib: {self.max_daily_rb_onboard_pib}, renewal_rate: {self.renewal_rate}, fil_plus_rate: {self.fil_plus_rate}")
+
         self.roi_threshold = roi_threshold
         self.agent_optimism = agent_optimism
 
-        self.duration_vec_days = np.asarray([365, 1095]).astype(np.int32)  # 1Y, 3Y, 5Y sectors are possible
+        self.duration_vec_days = np.asarray([360, 360*3]).astype(np.int32)  # 1Y, 3Y, 5Y sectors are possible
 
         self.map_optimism_scales()
 
@@ -79,19 +81,21 @@ class ROIAgent(SPAgent):
         future_rewards_per_sector_estimate = self.forecast_day_rewards_per_sector(date_in, sector_duration)
         
         # get the cost per sector for the duration, which in this case is just borrowing costs
-        sector_duration_yrs = sector_duration / 365.
+        sector_duration_yrs = sector_duration / 360.
         pledge_repayment_estimate = self.compute_repayment_amount_from_supply_discount_rate_model(date_in, prev_day_pledge_per_QAP, sector_duration_yrs)
         cost_per_sector_estimate = pledge_repayment_estimate - prev_day_pledge_per_QAP
-        roi_estimate = (future_rewards_per_sector_estimate.sum() - cost_per_sector_estimate) / prev_day_pledge_per_QAP
+        if prev_day_pledge_per_QAP > 0:
+            roi_estimate = (future_rewards_per_sector_estimate.sum() - cost_per_sector_estimate) / prev_day_pledge_per_QAP
+        else:
+            roi_estimate = 1
         
         # annualize it so that we can have the same frame of reference when comparing different sector durations
-        duration_yr = sector_duration / 365.
         if roi_estimate < -1:
             roi_estimate_annualized = self.roi_threshold - 1  # if ROI is too low, set it so that it doesn't onboard.
                                                               # otherwise, you would take an exponent of a negative number
                                                               # to a fractional power below and get a complex number
         else:
-            roi_estimate_annualized = (1.0+roi_estimate)**(1.0/duration_yr) - 1
+            roi_estimate_annualized = (1.0+roi_estimate)**(1.0/sector_duration_yrs) - 1
         
         # print(roi_estimate, roi_estimate_annualized, duration_yr)
         # if np.isnan(future_rewards_per_sector_estimate.sum()) or np.isnan(prev_day_pledge_per_QAP) or np.isnan(roi_estimate) or np.isnan(roi_estimate_annualized):
@@ -110,7 +114,7 @@ class ROIAgent(SPAgent):
             
         max_roi_idx = np.argmax(roi_estimate_vec)
         best_duration = self.duration_vec_days[max_roi_idx]
-        best_duration_yrs = best_duration / 365.
+        best_duration_yrs = best_duration / 360.
         if roi_estimate_vec[max_roi_idx] > self.roi_threshold:
             rb_to_onboard = min(self.max_daily_rb_onboard_pib, self.max_sealing_throughput_pib)
             qa_to_onboard = self.model.apply_qa_multiplier(rb_to_onboard * self.fil_plus_rate,
@@ -127,7 +131,7 @@ class ROIAgent(SPAgent):
 
             if not self.debug_mode:
                 self.onboard_power(self.current_date, rb_to_onboard, qa_to_onboard, best_duration,
-                                pledge_needed_for_onboarding, pledge_repayment_value_onboard)
+                                   pledge_needed_for_onboarding, pledge_repayment_value_onboard)
             else:
                 onboard_args_to_return = (self.current_date, rb_to_onboard, qa_to_onboard, best_duration, 
                                           pledge_needed_for_onboarding, pledge_repayment_value_onboard)
@@ -138,6 +142,8 @@ class ROIAgent(SPAgent):
                 # which aspects of power get renewed is dependent on the setting "renewals_setting" in the FilecoinModel object
                 cc_power_to_renew = se_power_dict['se_cc_power'] * self.renewal_rate
                 deal_power_to_renew = se_power_dict['se_deal_power'] * self.renewal_rate
+
+                # print('ROI[%d]:' % (self.unique_id,), se_power_dict, cc_power_to_renew, deal_power_to_renew)
 
                 pledge_needed_for_renewal = (cc_power_to_renew + deal_power_to_renew) * pledge_per_pib
                 pledge_repayment_value_renew = self.compute_repayment_amount_from_supply_discount_rate_model(self.current_date, 
@@ -204,7 +210,7 @@ class ROIAgentDynamicOnboard(SPAgent):
 
         self.agent_optimism = agent_optimism
 
-        self.duration_vec_days = np.asarray([365, 1095]).astype(np.int32)  # 1Y, 3Y, 5Y sectors are possible
+        self.duration_vec_days = np.asarray([360, 360*3]).astype(np.int32)  # 1Y, 3Y, 5Y sectors are possible
 
         self.map_optimism_scales()
 
@@ -265,7 +271,7 @@ class ROIAgentDynamicOnboard(SPAgent):
         future_rewards_per_sector_estimate = self.forecast_day_rewards_per_sector(date_in, sector_duration)
         
         # get the cost per sector for the duration, which in this case is just borrowing costs
-        sector_duration_yrs = sector_duration / 365.
+        sector_duration_yrs = sector_duration / 360.
         pledge_repayment_estimate = self.compute_repayment_amount_from_supply_discount_rate_model(date_in, prev_day_pledge_per_QAP, sector_duration_yrs)
         cost_per_sector_estimate = pledge_repayment_estimate - prev_day_pledge_per_QAP
         if prev_day_pledge_per_QAP == 0:
@@ -274,13 +280,12 @@ class ROIAgentDynamicOnboard(SPAgent):
             roi_estimate = (future_rewards_per_sector_estimate.sum() - cost_per_sector_estimate) / prev_day_pledge_per_QAP
         
         # annualize it so that we can have the same frame of reference when comparing different sector durations
-        duration_yr = sector_duration / 365.
         if roi_estimate < -1:
             roi_estimate_annualized = self.roi_threshold - 1  # if ROI is too low, set it so that it doesn't onboard.
                                                               # otherwise, you would take an exponent of a negative number
                                                               # to a fractional power below and get a complex number
         else:
-            roi_estimate_annualized = (1.0+roi_estimate)**(1.0/duration_yr) - 1
+            roi_estimate_annualized = (1.0+roi_estimate)**(1.0/sector_duration_yrs) - 1
         
         # print(roi_estimate, roi_estimate_annualized, duration_yr)
         # if np.isnan(future_rewards_per_sector_estimate.sum()) or np.isnan(prev_day_pledge_per_QAP) or np.isnan(roi_estimate) or np.isnan(roi_estimate_annualized):
@@ -309,10 +314,12 @@ class ROIAgentDynamicOnboard(SPAgent):
             
         max_roi_idx = np.argmax(roi_estimate_vec)
         best_duration = self.duration_vec_days[max_roi_idx]
-        best_duration_yrs = best_duration / 365.
+        best_duration_yrs = best_duration / 360.
         if roi_estimate_vec[max_roi_idx] > self.min_roi:
-            # rb_to_onboard = min(self.max_daily_rb_onboard_pib, self.max_sealing_throughput_pib)
             rb_to_onboard, renewal_rate = self.convert_roi_to_onboard(roi_estimate_vec[max_roi_idx])
+            # clip the values to the min/max
+            rb_to_onboard = max(min(rb_to_onboard, self.max_daily_rb_onboard_pib), self.min_daily_rb_onboard_pib)
+            renewal_rate = max(min(renewal_rate, self.max_renewal_rate), self.min_renewal_rate)
             
             qa_to_onboard = self.model.apply_qa_multiplier(rb_to_onboard * self.fil_plus_rate,
                                                        fil_plus_multipler=constants.FIL_PLUS_MULTIPLER,
