@@ -360,6 +360,7 @@ class FilecoinModel(mesa.Model):
                 'date', 
                 'day_onboarded_rb_power_pib', 'extended_rb', 'total_rb', 'terminated_rb',
                 'day_onboarded_qa_power_pib', 'extended_qa', 'total_qa', 'terminated_qa',
+                'total_raw_power_eib', 'total_qa_power_eib',
             ]
         ]
         self.df_historical = self.df_historical[self.df_historical['date'] <= (self.start_date-timedelta(days=1))]
@@ -387,6 +388,8 @@ class FilecoinModel(mesa.Model):
         self.rbp0 = merged_df.iloc[0]['total_raw_power_eib']
         self.qap0 = merged_df.iloc[0]['total_qa_power_eib']
         self.max_date_se_power = self.df_future.iloc[-1]['date']
+
+        # print('date', merged_df.iloc[0]['date'], 'rbp0', self.rbp0, 'qap0', self.qap0)
         
         # this vector starts from the first day of the simulation
         # len_since_network_start = (self.end_date - constants.NETWORK_DATA_START).days
@@ -845,29 +848,39 @@ class FilecoinModel(mesa.Model):
         network_QAP = max(self.filecoin_df.iloc[day_idx]["total_qa_power_eib"] * constants.EIB, constants.MIN_VALUE)                  # in bytes
         self.filecoin_df.loc[day_idx, 'day_rewards_per_sector'] = constants.SECTOR_SIZE * day_network_reward / network_QAP
         
-        
     def _update_agents(self, update_day=None):
         day_idx = self.current_day if update_day is None else update_day
         date_in = self.filecoin_df.iloc[day_idx]['date']
 
         total_day_rewards = self.filecoin_df.iloc[day_idx]["day_network_reward"]
-        total_day_onboard_and_renew_pib = self.filecoin_df.iloc[day_idx]["day_onboarded_qap_pib"] +  self.filecoin_df.iloc[day_idx]["day_renewed_qap_pib"]
+        # total_day_onboard_and_renew_pib = self.filecoin_df.iloc[day_idx]["day_onboarded_qap_pib"] +  self.filecoin_df.iloc[day_idx]["day_renewed_qap_pib"]
+        total_network_qap = self.filecoin_df.iloc[day_idx]["total_qa_power_eib"] * constants.EIB
 
-        # TODO: add termination penalties here
-
-        # total_day_capital_inflow_FIL = self.filecoin_df.loc[day_idx, 'capital_inflow_FIL']
-        for agent_info in self.agents:
+        # NOTE: there is a discrepency between the debug_agent_qap_sum and the total_network_qap.
+        # My observations are that it is constantly ~0.4 EiB.  Need to track this down, but for now
+        # we do this pre-processing to ensure that only the amount of rewards available are disbursed.
+        # This delta seems to remain regardless of the number of agents or configuration of rbp/rr/fpr,
+        # so it is a constant factor somewhere that needs to be tracked down.
+        agent_reward_ratio_vec = np.zeros(len(self.agents))
+        for ii, agent_info in enumerate(self.agents):
             agent = agent_info['agent']
-            agent_day_power_stats = agent.get_power_at_date(date_in)
-        
-            day_onboarded_qap = agent_day_power_stats['day_onboarded_qa_power_pib']
-            day_renewed_qap = agent_day_power_stats['extended_qa_pib']
-            total_agent_qap_onboarded = day_onboarded_qap + day_renewed_qap
-            agent_reward_ratio = min(total_agent_qap_onboarded/total_day_onboard_and_renew_pib, 1.0) # account for numerical issues
-            # print(agent.unique_id, date_in, day_onboarded_qap, day_renewed_qap, total_day_onboard_and_renew_pib)
+
+            total_agent_qap = agent.get_active_qa_power_at_date(date_in) * constants.PIB
+            agent_reward_ratio = min(total_agent_qap/total_network_qap, 1.0) # account for numerical issues
+            agent_reward_ratio_vec[ii] = agent_reward_ratio
+        agent_reward_ratio_vec = agent_reward_ratio_vec / sum(agent_reward_ratio_vec)
+        assert np.isclose(sum(agent_reward_ratio_vec), 1.0), f"agent_reward_ratio_vec sum is not close to 1.0: {sum(agent_reward_ratio_vec)}"
+
+        debug_agent_qap_sum = 0
+        for ii, agent_info in enumerate(self.agents):
+            agent = agent_info['agent']
+            
+            total_agent_qap = agent.get_active_qa_power_at_date(date_in) * constants.PIB
+            debug_agent_qap_sum += total_agent_qap
+            # agent_reward_ratio = min(total_agent_qap/total_network_qap, 1.0) # account for numerical issues
+            agent_reward_ratio = agent_reward_ratio_vec[ii]
             agent_reward = total_day_rewards * agent_reward_ratio
 
-            # agent_network_df = agent_info['network_updates_df']
             agent_accounting_df = agent.accounting_df
             accounting_df_idx = agent_accounting_df[agent_accounting_df['date'] == date_in].index[0]
 
@@ -877,15 +890,9 @@ class FilecoinModel(mesa.Model):
             # remainder vests linearly over the next 180 days
             agent_accounting_df.loc[accounting_df_idx+1:accounting_df_idx+180, 'reward_FIL'] += (agent_reward * 0.75)/180
 
-            # # if there is any capital inflow FIL, distribute it to the agents according to the inflow distribution policy
-            # if total_day_capital_inflow_FIL > 0.0:
-            #     # TODO: need to figure out how to generalize the inputs to the distribution inflow policy function
-            #     FIL_to_agent = math.floor(self.capital_inflow_distribution_policy(total_agent_qap_onboarded, 
-            #                                                                       total_day_onboard_and_renew_pib, 
-            #                                                                       total_day_capital_inflow_FIL))
-            #     agent.accounting_df.loc[accounting_df_idx, 'capital_inflow_FIL'] += FIL_to_agent
-
             agent.post_global_step()
+        # this delta shoudl be close to zero
+        # print(date_in, (total_network_qap-debug_agent_qap_sum)/constants.EIB)
 
     def _zero_agent_rewards(self):
         for agent_info in self.agents:

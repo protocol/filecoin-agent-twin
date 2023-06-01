@@ -34,7 +34,6 @@ class SPAgent(mesa.Agent):
         self.onboarded_power = [[cc_power(0), deal_power(0)] for _ in range(self.sim_len_days)]
         self.renewed_power = [[cc_power(0), deal_power(0)] for _ in range(self.sim_len_days)]
         self.terminated_power = [[cc_power(0), deal_power(0)] for _ in range(self.sim_len_days)]
-
         # NOTE: duration is not relevant for SE power. It is only relevant for onboarded or renewed power
         self.scheduled_expire_power = [[cc_power(0), deal_power(0)] for _ in range(self.sim_len_days)]
 
@@ -51,15 +50,26 @@ class SPAgent(mesa.Agent):
         self.accounting_df['pledge_repayment_FIL'] = 0
         self.accounting_df['pledge_interest_payment_FIL'] = 0
 
-        self.agent_info_df = pd.DataFrame({'date': pd.date_range(start_date, end_date, freq='D')[:-1]})
+        # start one day before simulation start so that we can easily account for historical data without special logic
+        # self.agent_info_df = pd.DataFrame({'date': pd.date_range(start_date-timedelta(days=1), end_date, freq='D')[:-1]})
+        self.agent_info_df = pd.DataFrame({'date': pd.date_range(constants.NETWORK_DATA_START, end_date, freq='D')[:-1]})
         self.agent_info_df['cc_onboarded'] = 0
         self.agent_info_df['cc_renewed'] = 0
         self.agent_info_df['cc_onboarded_duration'] = 0
         self.agent_info_df['cc_renewed_duration'] = 0
+        self.agent_info_df['cum_cc_onboarded'] = 0
+        self.agent_info_df['cum_cc_renewed'] = 0
+        self.agent_info_df['cum_cc_sched_expire'] = 0
+        self.agent_info_df['cum_cc_terminated'] = 0
+
         self.agent_info_df['deal_onboarded'] = 0
         self.agent_info_df['deal_renewed'] = 0
         self.agent_info_df['deal_onboarded_duration'] = 0
         self.agent_info_df['deal_renewed_duration'] = 0
+        self.agent_info_df['cum_deal_onboarded'] = 0
+        self.agent_info_df['cum_deal_renewed'] = 0
+        self.agent_info_df['cum_deal_sched_expire'] = 0
+        self.agent_info_df['cum_deal_terminated'] = 0
 
         self.allocate_historical_metrics(agent_seed)
 
@@ -107,7 +117,7 @@ class SPAgent(mesa.Agent):
         agent_df_idx = self.agent_info_df[pd.to_datetime(self.agent_info_df['date']) == pd.to_datetime(date_in)].index[0]
         self.agent_info_df.loc[agent_df_idx, 'cc_onboarded'] += cc_power_in_pib
         self.agent_info_df.loc[agent_df_idx, 'deal_onboarded'] += qa_power_in_pib
-        
+
         # NOTE: we overwrite the sector duration here because agents are tracked in aggregate 
         # over each day, rather than by each sector. This means that an inherent assumption
         # of this model is that the duration of the sector is the same for all sectors on a given day.
@@ -219,12 +229,31 @@ class SPAgent(mesa.Agent):
         if deal_expire_index < self.sim_len_days:
             self.scheduled_expire_power[deal_expire_index][1] += today_renewed_deal_power
 
+        agent_df_idx = self.agent_info_df[self.agent_info_df['date'] == pd.to_datetime(self.current_date)].index[0]
+        # account for today's onboarded power in cumulative stats
+        self.agent_info_df.loc[agent_df_idx,'cum_cc_onboarded'] = self.agent_info_df.loc[agent_df_idx-1,'cum_cc_onboarded'] + today_onboarded_cc_power.pib
+        self.agent_info_df.loc[agent_df_idx,'cum_deal_onboarded'] = self.agent_info_df.loc[agent_df_idx-1,'cum_deal_onboarded'] + today_onboarded_deal_power.pib
+        
+        # account for today's renewed power in cumulative stats
+        self.agent_info_df.loc[agent_df_idx,'cum_cc_renewed'] = self.agent_info_df.loc[agent_df_idx-1,'cum_cc_renewed'] + today_renewed_cc_power.pib
+        self.agent_info_df.loc[agent_df_idx,'cum_deal_renewed'] = self.agent_info_df.loc[agent_df_idx-1,'cum_deal_renewed'] + today_renewed_deal_power.pib
+
+        # account for today's SE power in cumulative stats
+        self.agent_info_df.loc[agent_df_idx, 'cum_cc_sched_expire'] = self.agent_info_df.loc[agent_df_idx-1, 'cum_cc_sched_expire'] + self.scheduled_expire_power[self.current_day][0].pib
+        self.agent_info_df.loc[agent_df_idx, 'cum_deal_sched_expire'] = self.agent_info_df.loc[agent_df_idx-1, 'cum_deal_sched_expire'] + self.scheduled_expire_power[self.current_day][1].pib
+
+        # TODO: account for today's terminations in cumulative stats
+
         self.current_day += 1
         self.current_date += timedelta(days=1)
 
     def disburse_rewards(self, date_in, reward):
         df_idx = self.accounting_df[self.accounting_df['date'] == date_in].index[0]
         self.accounting_df.loc[df_idx, 'reward_FIL'] += reward
+
+    def get_active_qa_power_at_date(self, date_in):
+        power_at_date = self.get_power_at_date(date_in)
+        return (power_at_date['cum_deal_onboarded'] + power_at_date['cum_deal_renewed']) - (power_at_date['cum_deal_sched_expire'] + power_at_date['cum_deal_terminated'])
 
     def get_se_power_at_date(self, date_in):
         power_at_date = self.get_power_at_date(date_in)
@@ -235,6 +264,7 @@ class SPAgent(mesa.Agent):
 
     def get_power_at_date(self, date_in):
         ii = (date_in - constants.NETWORK_DATA_START).days
+        agent_df_idx = self.agent_info_df[self.agent_info_df['date'] == pd.to_datetime(date_in)].index[0]
         assert ii >= 0, "date_in must be >= %s" % (constants.NETWORK_DATA_START,)
         out_dict = {
             'day_onboarded_rb_power_pib': self.onboarded_power[ii][0].pib,
@@ -247,6 +277,15 @@ class SPAgent(mesa.Agent):
             'sched_expire_qa_pib': self.scheduled_expire_power[ii][1].pib,
             'terminated_rb_pib': self.terminated_power[ii][0].pib,
             'terminated_qa_pib': self.terminated_power[ii][1].pib,
+
+            'cum_cc_onboarded': self.agent_info_df.loc[agent_df_idx, 'cum_cc_onboarded'],
+            'cum_deal_onboarded': self.agent_info_df.loc[agent_df_idx, 'cum_deal_onboarded'],
+            'cum_cc_renewed': self.agent_info_df.loc[agent_df_idx, 'cum_cc_renewed'],
+            'cum_deal_renewed': self.agent_info_df.loc[agent_df_idx, 'cum_deal_renewed'],
+            'cum_cc_sched_expire': self.agent_info_df.loc[agent_df_idx, 'cum_cc_sched_expire'],
+            'cum_deal_sched_expire': self.agent_info_df.loc[agent_df_idx, 'cum_deal_sched_expire'],
+            'cum_cc_terminated': self.agent_info_df.loc[agent_df_idx, 'cum_cc_terminated'],
+            'cum_deal_terminated': self.agent_info_df.loc[agent_df_idx, 'cum_deal_terminated'],
             # 'scheduled_expire_pledge': self.scheduled_expire_pledge[ii],
         }
         return out_dict
@@ -260,28 +299,77 @@ class SPAgent(mesa.Agent):
         # we can't vector assign b/c the power vectors are lists of objects, but 
         # this is premature optimization that we can revisit later
         global_ii = (historical_df.iloc[0]['date'] - constants.NETWORK_DATA_START).days
-        ii_start = global_ii
-        for _, row in historical_df.iterrows():
+        cum_cc_onboarded, cum_cc_renewed, cum_cc_scheduled_expire, cum_cc_terminated = 0, 0, 0, 0
+        cum_deal_onboarded, cum_deal_renewed, cum_deal_scheduled_expire, cum_deal_terminated = 0, 0, 0, 0
+        agent_df_idx = self.agent_info_df[pd.to_datetime(self.agent_info_df['date']) == pd.to_datetime(historical_df.iloc[0]['date'])].index[0]
+        agent_df_idx_start = agent_df_idx
+        for row_ii, row in historical_df.iterrows():
+            day_onboarded_cc_power = row['day_onboarded_rb_power_pib']
+            day_onboarded_deal_power = row['day_onboarded_qa_power_pib']
+            extended_cc_power = row['extended_rb_pib']
+            extended_deal_power = row['extended_qa_pib']
+            scheduled_expire_cc_power = row['sched_expire_rb_pib']
+            scheduled_expire_deal_power = row['sched_expire_qa_pib']
+            terminated_cc_power = row['terminated_rb_pib']
+            terminated_deal_power = row['terminated_qa_pib']
+
             self.onboarded_power[global_ii] = [
-                cc_power(row['day_onboarded_rb_power_pib']),
-                deal_power(row['day_onboarded_qa_power_pib'])
+                cc_power(day_onboarded_cc_power), deal_power(day_onboarded_deal_power)
             ]
             self.renewed_power[global_ii] = [
-                cc_power(row['extended_rb_pib']),
-                deal_power(row['extended_qa_pib'])
+                cc_power(extended_cc_power), deal_power(extended_deal_power)
             ]
             self.scheduled_expire_power[global_ii] = [
-                cc_power(row['sched_expire_rb_pib']),
-                deal_power(row['sched_expire_qa_pib'])
+                cc_power(scheduled_expire_cc_power), deal_power(scheduled_expire_deal_power)
             ]
             self.terminated_power[global_ii] = [
-                cc_power(row['terminated_rb_pib']),
-                deal_power(row['terminated_qa_pib'])
+                cc_power(terminated_cc_power), deal_power(terminated_deal_power)
             ]
             # self.scheduled_expire_pledge[global_ii] = row['total_pledge']
+
+            if agent_df_idx == agent_df_idx_start:
+                # 0.03008728516178749, -0.41849559534988146
+                #cum_cc_onboarded = row['total_raw_power_eib'] * constants.EIB / constants.PIB # + historical_df.iloc[0:row_ii]['day_onboarded_rb_power_pib'].sum()
+                #cum_deal_onboarded = row['total_qa_power_eib'] * constants.EIB / constants.PIB #+ historical_df.iloc[0:row_ii]['day_onboarded_qa_power_pib'].sum()
+
+                cum_cc_renewed = historical_df.iloc[0:row_ii]['extended_rb_pib'].sum()
+                cum_cc_scheduled_expire = historical_df.iloc[0:row_ii]['sched_expire_rb_pib'].sum()
+                cum_cc_terminated = historical_df.iloc[0:row_ii]['terminated_rb_pib'].sum()
+                
+                cum_deal_renewed = historical_df.iloc[0:row_ii]['extended_qa_pib'].sum()
+                cum_deal_scheduled_expire = historical_df.iloc[0:row_ii]['sched_expire_qa_pib'].sum()
+                cum_deal_terminated =  historical_df.iloc[0:row_ii]['terminated_qa_pib'].sum()
+
+                # 0.030087285161810584, -0.41849559534988146
+                cum_cc_onboarded = row['total_raw_power_eib'] * constants.EIB / constants.PIB + cum_cc_renewed - cum_cc_scheduled_expire - cum_cc_terminated
+                cum_deal_onboarded = row['total_qa_power_eib'] * constants.EIB / constants.PIB + cum_deal_renewed - cum_deal_scheduled_expire - cum_deal_terminated
+
+                # print('seeding date:', historical_df.iloc[0]['date'], ' w/ total_cc_onboarded=', cum_cc_onboarded, ' total_qa_onboarded', cum_deal_onboarded)
+                # raise Exception('stop')
+            else:
+                cum_cc_onboarded += day_onboarded_cc_power
+                cum_cc_renewed += extended_cc_power
+                cum_cc_scheduled_expire += scheduled_expire_cc_power
+                cum_cc_terminated += terminated_cc_power
+
+                cum_deal_onboarded += day_onboarded_deal_power
+                cum_deal_renewed += extended_deal_power
+                cum_deal_scheduled_expire += scheduled_expire_deal_power
+                cum_deal_terminated += terminated_deal_power
             
             global_ii += 1
-        # print("Seeding agent: %d from index=%d:%d" % (self.unique_id, ii_start, global_ii))
+            # print("Seeding agent: %d from index=%d:%d" % (self.unique_id, ii_start, global_ii))
+        
+            self.agent_info_df.loc[agent_df_idx,'cum_cc_onboarded'] = cum_cc_onboarded
+            self.agent_info_df.loc[agent_df_idx,'cum_cc_renewed'] = cum_cc_renewed
+            self.agent_info_df.loc[agent_df_idx,'cum_cc_sched_expire'] = cum_cc_scheduled_expire
+            self.agent_info_df.loc[agent_df_idx,'cum_cc_terminated'] = cum_cc_terminated
+
+            self.agent_info_df.loc[agent_df_idx,'cum_deal_onboarded'] = cum_deal_onboarded
+            self.agent_info_df.loc[agent_df_idx,'cum_deal_renewed'] = cum_deal_renewed
+            self.agent_info_df.loc[agent_df_idx,'cum_deal_sched_expire'] = cum_deal_scheduled_expire
+            self.agent_info_df.loc[agent_df_idx,'cum_deal_terminated'] = cum_deal_terminated
+            agent_df_idx += 1
 
         # add in the SE power
         global_ii = (future_se_df.iloc[0]['date'] - constants.NETWORK_DATA_START).days
