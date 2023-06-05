@@ -677,6 +677,7 @@ class FilecoinModel(mesa.Model):
         self.filecoin_df.loc[date_to_idx, 'scheduled_pledge_release'] += FIL_amt
         if date_from_idx is not None:
             self.filecoin_df.loc[date_from_idx, 'scheduled_pledge_release'] -= FIL_amt
+        # print(f"Released {FIL_amt} FIL from pledge from {date_from} to {date_to}")
 
     def _update_sched_expire_pledge(self, date_in, update_filecoin_df=True):
         """
