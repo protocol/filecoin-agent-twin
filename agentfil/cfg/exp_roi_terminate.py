@@ -3,8 +3,8 @@ from typing import Dict, Tuple, List
 import numpy as np
 
 from agentfil.cfg.experiment_cfg import ExperimentCfg
-from agentfil.agents.dca_agent import DCAAgentWithTerminate
-from agentfil.agents.roi_agent import ROIAgent, ROIAgentDynamicOnboard
+from agentfil.agents.dca_agent import DCAAgentLeaveNetwork
+from agentfil.agents.roi_agent import ROIAgentDynamicOnboard
 import agentfil.constants as C
 
 import argparse
@@ -56,7 +56,7 @@ class ExpROIAdaptDCATerminate(ExperimentCfg):
         self.fil_supply_discount_rate = fil_supply_discount_rate
 
     def get_agent_cfg(self) -> Tuple[List, List, List]:
-        agent_types = [ROIAgentDynamicOnboard, DCAAgentWithTerminate] * self.num_agents
+        agent_types = [ROIAgentDynamicOnboard, DCAAgentLeaveNetwork] * self.num_agents
         # agent_types = [ROIAgent, DCAAgentWithTerminate] * self.num_agents
         agent_power_distribution = []
         
@@ -81,18 +81,6 @@ class ExpROIAdaptDCATerminate(ExperimentCfg):
                 'max_roi': self.roi_agent_max_roi,
                 'agent_optimism': self.roi_agent_optimism
             }
-            # agent_kwargs = {
-            #     'max_sealing_throughput': self.agent_max_sealing_throughput,
-            #     # 'min_daily_rb_onboard_pib': self.roi_agent_min_daily_rb_onboard_pib * roi_agent_power,
-            #     'max_daily_rb_onboard_pib': self.roi_agent_max_daily_rb_onboard_pib * roi_agent_power_pct,
-            #     # 'min_renewal_rate': self.roi_agent_min_renewal_rate,
-            #     'renewal_rate': self.roi_agent_max_renewal_rate,
-            #     'fil_plus_rate': agent_fil_plus_rate,
-            #     # 'min_roi': self.roi_agent_min_roi,
-            #     # 'max_roi': self.roi_agent_max_roi,
-            #     'roi_threshold': self.roi_agent_min_roi,
-            #     'agent_optimism': self.roi_agent_optimism
-            # }
             agent_kwargs_vec.append(agent_kwargs)
             agent_power_distribution.append(roi_agent_power_pct)
 

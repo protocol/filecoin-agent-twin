@@ -27,7 +27,7 @@ class SPAgent(mesa.Agent):
 
         ########################################################################################
         # NOTE: self.t should be equal to self.model.filecoin_df['date']
-        self.t = [start_date + timedelta(days=i) for i in range(self.sim_len_days)]
+        self.t = np.asarray([start_date + timedelta(days=i) for i in range(self.sim_len_days)])
         ########################################################################################
 
         # do we need to parallel account fro this in onboarded_power and teh data frame??
@@ -36,10 +36,16 @@ class SPAgent(mesa.Agent):
         self.terminated_power = [[cc_power(0), deal_power(0)] for _ in range(self.sim_len_days)]
         # NOTE: duration is not relevant for SE power. It is only relevant for onboarded or renewed power
         self.scheduled_expire_power = [[cc_power(0), deal_power(0)] for _ in range(self.sim_len_days)]
+        self.known_scheduled_expire_power = [[cc_power(0), deal_power(0)] for _ in range(self.sim_len_days)]
+        self.modeled_scheduled_expire_power = [[cc_power(0), deal_power(0)] for _ in range(self.sim_len_days)]
 
         self.accounting_df = pd.DataFrame()
         self.accounting_df['date'] = self.model.filecoin_df['date']
         self.accounting_df['reward_FIL'] = 0
+        self.accounting_df['full_reward_for_power_FIL'] = 0  # tracks the total amount of expected reward for onboarding power
+                                                             # this is the full amount, not the vested version which is what is used
+                                                             # to actually compute the balance.  Useful when processing terminations
+                                                             # to delete any rewards that would have been vested
         self.accounting_df['onboard_pledge_FIL'] = 0
         self.accounting_df['renew_pledge_FIL'] = 0
         self.accounting_df['onboard_scheduled_pledge_release_FIL'] = 0
@@ -49,6 +55,7 @@ class SPAgent(mesa.Agent):
         self.accounting_df['pledge_requested_FIL'] = 0
         self.accounting_df['pledge_repayment_FIL'] = 0
         self.accounting_df['pledge_interest_payment_FIL'] = 0
+        self.accounting_df['termination_burned_FIL'] = 0
 
         # start one day before simulation start so that we can easily account for historical data without special logic
         # self.agent_info_df = pd.DataFrame({'date': pd.date_range(start_date-timedelta(days=1), end_date, freq='D')[:-1]})
@@ -214,8 +221,10 @@ class SPAgent(mesa.Agent):
 
         if cc_expire_index < self.sim_len_days:
             self.scheduled_expire_power[cc_expire_index][0] += today_onboarded_cc_power
+            self.modeled_scheduled_expire_power[cc_expire_index][0] += today_onboarded_cc_power
         if deal_expire_index < self.sim_len_days:
             self.scheduled_expire_power[deal_expire_index][1] += today_onboarded_deal_power
+            self.modeled_scheduled_expire_power[deal_expire_index][1] += today_onboarded_deal_power
 
         # do the same for renewals
         today_renewed_cc_power = self.renewed_power[self.current_day][0]
@@ -226,8 +235,10 @@ class SPAgent(mesa.Agent):
 
         if cc_expire_index < self.sim_len_days:
             self.scheduled_expire_power[cc_expire_index][0] += today_renewed_cc_power
+            self.modeled_scheduled_expire_power[cc_expire_index][0] += today_renewed_cc_power
         if deal_expire_index < self.sim_len_days:
             self.scheduled_expire_power[deal_expire_index][1] += today_renewed_deal_power
+            self.modeled_scheduled_expire_power[deal_expire_index][1] += today_renewed_deal_power
 
         agent_df_idx = self.agent_info_df[self.agent_info_df['date'] == pd.to_datetime(self.current_date)].index[0]
         # account for today's onboarded power in cumulative stats
@@ -242,7 +253,9 @@ class SPAgent(mesa.Agent):
         self.agent_info_df.loc[agent_df_idx, 'cum_cc_sched_expire'] = self.agent_info_df.loc[agent_df_idx-1, 'cum_cc_sched_expire'] + self.scheduled_expire_power[self.current_day][0].pib
         self.agent_info_df.loc[agent_df_idx, 'cum_deal_sched_expire'] = self.agent_info_df.loc[agent_df_idx-1, 'cum_deal_sched_expire'] + self.scheduled_expire_power[self.current_day][1].pib
 
-        # TODO: account for today's terminations in cumulative stats
+        # account for today's terminations in cumulative stats
+        self.agent_info_df.loc[agent_df_idx, 'cum_cc_terminated'] = self.agent_info_df.loc[agent_df_idx-1, 'cum_cc_terminated'] + self.terminated_power[self.current_day][0].pib
+        self.agent_info_df.loc[agent_df_idx, 'cum_deal_terminated'] = self.agent_info_df.loc[agent_df_idx-1, 'cum_deal_terminated'] + self.terminated_power[self.current_day][1].pib
 
         self.current_day += 1
         self.current_date += timedelta(days=1)
@@ -378,14 +391,16 @@ class SPAgent(mesa.Agent):
                 cc_power(row['sched_expire_rb_pib']),
                 deal_power(row['sched_expire_qa_pib'])
             ]
-            # self.scheduled_expire_pledge[global_ii] = row['total_pledge']
+            self.known_scheduled_expire_power[global_ii] = [
+                cc_power(row['sched_expire_rb_pib']),
+                deal_power(row['sched_expire_qa_pib'])
+            ]
 
             global_ii += 1
 
         # add in the scheduled expirations
         # TODO: do we need to ensure dates are aligned?
         self.accounting_df['scheduled_pledge_release'] = agent_seed['scheduled_pledge_release']
-
     
     def _get_available_FIL(self, date_in):
         """
@@ -424,7 +439,7 @@ class SPAgent(mesa.Agent):
         accounting_df_idx = self.accounting_df[pd.to_datetime(self.accounting_df['date']) == pd.to_datetime(date_in)].index[0]
         accounting_df_subset = self.accounting_df.loc[0:accounting_df_idx, :]
         
-        return np.sum(accounting_df_subset['reward_FIL']) - np.sum(accounting_df_subset['pledge_delta_FIL'])
+        return np.sum(accounting_df_subset['reward_FIL']) - np.sum(accounting_df_subset['pledge_delta_FIL'] - np.sum(accounting_df_subset['termination_burned_FIL']))
 
     def get_max_onboarding_qap_pib(self, date_in):
         available_FIL = self.get_available_FIL(date_in)
@@ -452,6 +467,144 @@ class SPAgent(mesa.Agent):
         #future_value = pledge_amount * (1 + (discount_rate/compounding_freq_yrs)) ** (duration_yrs*compounding_freq_yrs)
         future_value = pledge_amount * np.exp(discount_rate * duration_yrs)
         return future_value
+    
+    def terminate_modeled_power(self, onboarding_date, terminate_date=None):
+        # terminates power which was onboarded on `onboarding_date` at terminate_date
+        if terminate_date is None:
+            terminate_date = self.current_date
+
+        # compute how much of the modeled onboarded power is still active at current date
+        arr_idx = np.where(self.t == onboarding_date)[0][0]
+        rb_onboarded_power = self.onboarded_power[arr_idx][0]
+        qa_onboarded_power = self.onboarded_power[arr_idx][1]
+        # get the rewards/sector on this date
+        filecoin_df_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(onboarding_date)].index[0]
+        rewards_per_sector_during_onboarding = self.model.filecoin_df.loc[filecoin_df_idx, 'day_rewards_per_sector']
+        
+        accounting_df_idx = self.accounting_df[pd.to_datetime(self.accounting_df['date']) == pd.to_datetime(onboarding_date)].index[0]
+        onboarded_pledge = self.accounting_df.loc[accounting_df_idx, 'onboard_pledge_FIL']  # for debugging only
+        associated_pledge_to_release = self.accounting_df.loc[accounting_df_idx, 'onboard_pledge_FIL']
+
+        rb_active_power = rb_onboarded_power.pib
+        qa_active_power = qa_onboarded_power.pib
+        dur = rb_onboarded_power.duration
+        iter_date = onboarding_date
+        qa_rr_prod = 1  # for debugging only
+
+        # TODO: test this for termination dates > sector duration to verify this loop is working
+        while iter_date < terminate_date:
+            iter_date += timedelta(days=dur)
+            if iter_date > terminate_date:
+                break
+            
+            arr_idx += dur
+            accounting_df_idx += dur
+            rb_rr_at_dur = float(self.renewed_power[arr_idx][0])/float(self.scheduled_expire_power[arr_idx][0])
+            qa_rr_at_dur = float(self.renewed_power[arr_idx][1])/float(self.scheduled_expire_power[arr_idx][1])
+            assert rb_rr_at_dur <= 1.0
+            assert qa_rr_at_dur <= 1.0
+            rb_active_power *= rb_rr_at_dur
+            qa_active_power *= qa_rr_at_dur
+
+            # update the associated pledge to release based on what was renewed
+            associated_pledge_to_release -= self.accounting_df.loc[accounting_df_idx, 'onboard_scheduled_pledge_release_FIL']
+            associated_pledge_to_release += self.accounting_df.loc[accounting_df_idx, 'renew_pledge_FIL']
+            qa_rr_prod *= qa_rr_at_dur
+
+            dur = self.renewed_power[arr_idx][0].duration
+
+        # TODO: compute termination fee
+        # a - convert active_power to sectors
+        num_sectors_to_terminate = qa_active_power * constants.PIB / constants.SECTOR_SIZE
+        # b - rewards/sector at time of onboarding * sectors * 90  --> 90 days is the termination fee
+        termination_fee = int(rewards_per_sector_during_onboarding * num_sectors_to_terminate * 90)
+
+        accounting_df_idx = self.accounting_df[pd.to_datetime(self.accounting_df['date']) == pd.to_datetime(terminate_date)].index[0]
+        self.accounting_df.loc[accounting_df_idx, 'termination_burned_FIL'] += termination_fee
+        # update the termination statistics
+        arr_idx = (terminate_date - constants.NETWORK_DATA_START).days
+        self.terminated_power[arr_idx][0] += cc_power(rb_active_power)
+        self.terminated_power[arr_idx][1] += deal_power(qa_active_power)
+
+        # print(
+        #     'rb_term:', rb_active_power, 
+        #     'qa_term:', qa_active_power, 
+        #     'fee:', termination_fee, 
+        #     'onboarding:', onboarding_date, 
+        #     'terminate:', terminate_date, 
+        #     'qa_rr_prod:', qa_rr_prod, 
+        #     'onboarded_FIL:', onboarded_pledge, 
+        #     'associated_FIL_to_release:', associated_pledge_to_release
+        # )
+        # move when the pledge is released from the future to now
+        self.accounting_df.loc[accounting_df_idx, 'scheduled_pledge_release'] += associated_pledge_to_release
+        date_to = terminate_date
+        if accounting_df_idx+dur < len(self.accounting_df):
+            self.accounting_df.loc[accounting_df_idx+dur, 'scheduled_pledge_release'] -= associated_pledge_to_release
+            date_from = terminate_date + timedelta(days=dur)
+        else:
+            date_from = None
+        # self.model._shift_global_sched_expire(date_from, date_to, associated_pledge_to_release)
+        self.model._release_pledge(date_from, date_to, associated_pledge_to_release)
+
+        # take care of reward vesting
+        num_days_since_onboard = (terminate_date - onboarding_date).days
+        if num_days_since_onboard < 180:
+            # we have some unvested rewards that need to be removed from the agent's rewards
+            accounting_df_idx = self.accounting_df[pd.to_datetime(self.accounting_df['date']) == pd.to_datetime(onboarding_date)].index[0]
+            full_rewards_for_power = self.accounting_df.loc[accounting_df_idx, 'full_reward_for_power_FIL']
+            num_days_remaining_vest = 180-num_days_since_onboard
+            vest_rewards_per_day = full_rewards_for_power*0.75/180
+
+            accounting_df_idx = self.accounting_df[pd.to_datetime(self.accounting_df['date']) == pd.to_datetime(terminate_date)].index[0]
+            self.accounting_df.loc[accounting_df_idx:accounting_df_idx+num_days_remaining_vest, 'reward_FIL'] -= vest_rewards_per_day
+
+    def terminate_all_modeled_power(self, terminate_date=None):
+        current_date = self.start_date
+        while current_date < terminate_date:
+            self.terminate_modeled_power(current_date, terminate_date)
+            current_date += timedelta(days=1)
+
+    def terminate_all_known_power(self, terminate_date=None):
+        # get the known power which is still active at terminate_date
+        if terminate_date is None:
+            terminate_date = self.current_date
+        assert terminate_date >= self.start_date
+
+        # this is the sum of the known onboarded power until terminate_date - SE expire power at terminate_date
+        agent_info_df_idx = self.agent_info_df[pd.to_datetime(self.agent_info_df['date']) == pd.to_datetime(self.start_date)].index[0]
+        agent_at_start_stats = self.agent_info_df.loc[agent_info_df_idx]
+        
+        # get known power that was onboarded + renewed 
+        # since data before simulation start is all "known", we can use the stats at simulation start to compute
+        # the onboarded power that is known
+        print(agent_at_start_stats)
+
+        # get known power that was expired & terminated
+
+        # get active power
+        rb_active_power = agent_at_start_stats['cum_cc_onboarded'] + agent_at_start_stats['cum_cc_renewed'] - agent_at_start_stats['cum_cc_sched_expire'] - agent_at_start_stats['cum_cc_terminated']
+        qa_active_power = agent_at_start_stats['cum_deal_onboarded'] + agent_at_start_stats['cum_deal_renewed'] - agent_at_start_stats['cum_deal_sched_expire'] - agent_at_start_stats['cum_deal_terminated']
+
+        # use the pledge at the simulation start as an approxmation of the rewards/sector at onboarding date
+        # TODO: this can be improved, perhaps by averaging over the rewards/sector before simulation starts
+        filecoin_df_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(self.start_date)].index[0]
+        rewards_per_sector_during_onboarding = self.model.filecoin_df.loc[filecoin_df_idx, 'day_rewards_per_sector']
+
+        num_sectors_to_terminate = qa_active_power * constants.PIB / constants.SECTOR_SIZE
+        # b - rewards/sector at time of onboarding * sectors * 90  --> 90 days is the termination fee
+        termination_fee = int(rewards_per_sector_during_onboarding * num_sectors_to_terminate * 90)
+
+        print('terminating known power -->', rb_active_power, qa_active_power, num_sectors_to_terminate, rewards_per_sector_during_onboarding, termination_fee)
+
+        accounting_df_idx = self.accounting_df[pd.to_datetime(self.accounting_df['date']) == pd.to_datetime(terminate_date)].index[0]
+        self.accounting_df.loc[accounting_df_idx, 'termination_burned_FIL'] += termination_fee
+        # update the termination statistics
+        arr_idx = (terminate_date - constants.NETWORK_DATA_START).days
+        self.terminated_power[arr_idx][0] += cc_power(rb_active_power)
+        self.terminated_power[arr_idx][1] += deal_power(qa_active_power)
+
+        raise ValueError("bug")
 
     def save_data(self, output_dir):
         accounting_fp = os.path.join(output_dir, 'agent_%d_accounting_info.csv' % (self.unique_id,))
