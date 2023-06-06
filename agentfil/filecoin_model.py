@@ -407,7 +407,7 @@ class FilecoinModel(mesa.Model):
             agent_historical_df['date'] = self.df_historical['date']
             agent_future_df = self.df_future.drop('date', axis=1) * agent_power_pct
             agent_future_df['date'] = self.df_future['date']
-            agent_scheduled_pledge_release_df = self.filecoin_df['scheduled_pledge_release'] * agent_power_pct
+            agent_scheduled_pledge_release_df = self.filecoin_df[['scheduled_pledge_release']] * agent_power_pct
             agent_scheduled_pledge_release_df['date'] = self.filecoin_df['date']
             agent_seed = {
                 'historical_power': agent_historical_df,

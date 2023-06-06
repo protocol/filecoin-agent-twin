@@ -179,9 +179,9 @@ class DCAAgentTerminate(SPAgent):
         self.terminate_date = terminate_date
 
     def step(self):
-        if self.current_date == self.terminate_date:
+        if self.terminate_date is not None and self.current_date == self.terminate_date:
             self.terminate_all_modeled_power(self.current_date)
-            # self.terminate_all_known_power(self.current_date)
+            self.terminate_all_known_power(self.current_date)
         elif self.terminate_date is not None and self.current_date > self.terminate_date:
             # we stop onboarding and renewing power after this date
             pass
