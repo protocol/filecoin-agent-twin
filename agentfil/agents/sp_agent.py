@@ -526,6 +526,11 @@ class SPAgent(mesa.Agent):
         self.terminated_power[arr_idx][0] += cc_power(rb_active_power)
         self.terminated_power[arr_idx][1] += deal_power(qa_active_power)
 
+        # remove it from the SE power in the future when it was originally going to be expired
+        date_to_release_idx = (date_to_release - constants.NETWORK_DATA_START).days
+        self.scheduled_expire_power[date_to_release_idx][0] += cc_power(-rb_active_power)
+        self.scheduled_expire_power[date_to_release_idx][1] += deal_power(-qa_active_power)
+        
         # move when the pledge is released from the future to now
         self.accounting_df.loc[accounting_df_idx, 'scheduled_pledge_release'] += associated_pledge_to_release
         date_to = terminate_date
@@ -597,25 +602,29 @@ class SPAgent(mesa.Agent):
         known_qa_active_power = total_current_qa_active_power - total_qa_modeled_power_active
         # the pledge to be released at the terminate date due to known power can be computed as:
         #  total_locked@terminate - locked@terminate[due to modeled power]
-        total_locked_at_terminate_date = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(terminate_date_m1)]['network_locked'].values[0]
+        _, agentid2powerproportion = self.model._get_agent_power_proportion(update_day=self.current_day-1)  # havent aggregated today's decisions yet
+        # total_locked_at_terminate_date = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(terminate_date_m1)]['network_locked'].values[0] * self.agent_seed['agent_power_pct']
+        print(agentid2powerproportion)
+        total_locked_at_terminate_date = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(terminate_date_m1)]['network_locked'].values[0] * agentid2powerproportion[self.unique_id]
         known_pledge_to_release = total_locked_at_terminate_date - total_modeled_pledge_to_release
 
         # print(self.agent_info_df.loc[agent_info_df_idx-1])
         # print(agent_at_terminate_date_stats)
         print(total_current_rb_active_power, total_current_qa_active_power)
         print(total_rb_modeled_power_active, total_qa_modeled_power_active)
-        print(known_rb_active_power, known_qa_active_power, known_pledge_to_release)
+        print(known_rb_active_power, known_qa_active_power)
+        print(total_locked_at_terminate_date, total_modeled_pledge_to_release, known_pledge_to_release)
 
         # release the pledge proportional to the SE
         known_scheduled_pledge_release_df = self.agent_seed['scheduled_pledge_release']
-        known_scheduled_pledge_release_after_terminate_df = known_scheduled_pledge_release_df[known_scheduled_pledge_release_df['date'] >= terminate_date_m1]
+        known_scheduled_pledge_release_after_terminate_df = known_scheduled_pledge_release_df[known_scheduled_pledge_release_df['date'] > terminate_date_m1]
         ix = np.where(known_scheduled_pledge_release_after_terminate_df['scheduled_pledge_release'] == 0)[0][0]
         end_of_known_power_date = known_scheduled_pledge_release_after_terminate_df.iloc[ix]['date']
+        known_scheduled_pledge_release_filtered = known_scheduled_pledge_release_after_terminate_df[known_scheduled_pledge_release_after_terminate_df['date'] < end_of_known_power_date]
         current_date = terminate_date
 
-        # NOTE: I think this release_pct_vector has a big effect on how the locked trajectory looks.
-        # Investigate this a bit more.
-        release_pct_vector = (known_scheduled_pledge_release_after_terminate_df['scheduled_pledge_release'] / known_scheduled_pledge_release_after_terminate_df['scheduled_pledge_release'].sum()).values
+        # NOTE: release_pct_vector has a big effect on how the locked trajectory looks.
+        release_pct_vector = (known_scheduled_pledge_release_filtered['scheduled_pledge_release'] / known_scheduled_pledge_release_filtered['scheduled_pledge_release'].sum()).values
         
         known_power_onboarding_date_approx = constants.NETWORK_DATA_START
         filecoin_df_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(known_power_onboarding_date_approx)].index[0]

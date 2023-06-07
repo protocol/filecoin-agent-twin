@@ -193,18 +193,11 @@ class DCAAgentTerminate(SPAgent):
                                                         sector_duration_days=self.sector_duration) + \
                             rb_to_onboard * (1-self.fil_plus_rate)
             pledge_per_pib = self.model.estimate_pledge_for_qa_power(self.current_date, 1.0)
-            
-            # debugging to ensure that pledge/sector seems reasonable
-            # sector_size_in_pib = constants.SECTOR_SIZE / constants.PIB
-            # pledge_per_sector = self.model.estimate_pledge_for_qa_power(self.current_date, sector_size_in_pib)
-            # print(pledge_per_pib, pledge_per_sector)
-            
-            # total_qa_onboarded = rb_to_onboard + qa_to_onboard
+                        
             pledge_needed_for_onboarding = qa_to_onboard * pledge_per_pib
             pledge_repayment_value_onboard = self.compute_repayment_amount_from_supply_discount_rate_model(self.current_date, 
                                                                                                         pledge_needed_for_onboarding, 
                                                                                                         self.sector_duration_yrs)
-            # print(rb_to_onboard, self.max_daily_rb_onboard_pib, self.max_sealing_throughput_pib, self.fil_plus_rate, qa_to_onboard, pledge_per_pib, pledge_needed_for_onboarding, pledge_repayment_value_onboard)
             
             if not self.debug_mode:
                 self.onboard_power(self.current_date, rb_to_onboard, qa_to_onboard, self.sector_duration, 

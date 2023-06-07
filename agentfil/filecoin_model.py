@@ -394,8 +394,11 @@ class FilecoinModel(mesa.Model):
         start_idx = self.filecoin_df[self.filecoin_df['date'] == scheduled_df.iloc[0]['date']].index[0]
         end_idx = self.filecoin_df[self.filecoin_df['date'] == scheduled_df.iloc[-1]['date']].index[0]
         self.filecoin_df['scheduled_pledge_release'] = 0
-        print('setting scheduled_pledge_release for dates:', scheduled_df.iloc[0]['date'], 'to', scheduled_df.iloc[-1]['date'])
-        self.filecoin_df.loc[start_idx:end_idx, 'scheduled_pledge_release'] = known_scheduled_pledge_release_vec
+        # print('setting scheduled_pledge_release for dates:', 
+        #       scheduled_df.iloc[0]['date'], 'to', scheduled_df.iloc[-1]['date'], 
+        #       start_idx, end_idx, len(known_scheduled_pledge_release_vec), type(known_scheduled_pledge_release_vec),
+        #       self.filecoin_df.loc[start_idx, 'date'], self.filecoin_df.loc[end_idx, 'date'])
+        self.filecoin_df.loc[start_idx:end_idx-1, 'scheduled_pledge_release'] = known_scheduled_pledge_release_vec
         
         self.zero_cum_capped_power = data.get_cum_capped_rb_power(constants.NETWORK_DATA_START)
 
@@ -412,7 +415,8 @@ class FilecoinModel(mesa.Model):
             agent_seed = {
                 'historical_power': agent_historical_df,
                 'future_se_power': agent_future_df,
-                'scheduled_pledge_release': agent_scheduled_pledge_release_df
+                'scheduled_pledge_release': agent_scheduled_pledge_release_df,
+                'agent_power_pct': agent_power_pct,
             }
             if agent_types is not None:
                 agent_cls = agent_types[ii]
@@ -729,7 +733,8 @@ class FilecoinModel(mesa.Model):
             original_pledge = agent.accounting_df.loc[day_idx, "scheduled_pledge_release"]
 
             # scale it by the amount that was renewed
-            renewal_rate = float(day_renewed_qap)/float(day_sched_expire_qap) if day_sched_expire_qap > 0 else 1
+            #renewal_rate = float(day_renewed_qap)/float(day_sched_expire_qap) if day_sched_expire_qap > 0 else 1
+            renewal_rate = float(day_renewed_qap)/float(day_sched_expire_qap) if day_sched_expire_qap > 0 else 0
             original_pledge_for_renew = original_pledge * renewal_rate
             renews_locked = max(original_pledge_for_renew, renews_locked)
 
@@ -856,31 +861,50 @@ class FilecoinModel(mesa.Model):
         network_QAP = max(self.filecoin_df.iloc[day_idx]["total_qa_power_eib"] * constants.EIB, constants.MIN_VALUE)                  # in bytes
         self.filecoin_df.loc[day_idx, 'day_rewards_per_sector'] = constants.SECTOR_SIZE * day_network_reward / network_QAP
         
+    def _get_agent_power_proportion(self, update_day=None):
+        day_idx = self.current_day if update_day is None else update_day
+        date_in = self.filecoin_df.iloc[day_idx]['date']
+
+        total_network_qap = self.filecoin_df.iloc[day_idx]["total_qa_power_eib"] * constants.EIB
+        agent_power_proportion_vec = np.zeros(len(self.agents))
+        for ii, agent_info in enumerate(self.agents):
+            agent = agent_info['agent']
+
+            total_agent_qap = agent.get_active_qa_power_at_date(date_in) * constants.PIB
+            agent_power_proportion = min(total_agent_qap/total_network_qap, 1.0) # account for numerical issues
+            agent_power_proportion_vec[ii] = agent_power_proportion
+            
+        agent_power_proportion_vec = agent_power_proportion_vec / sum(agent_power_proportion_vec)
+        agentid2power_proportion = {}
+        for ii, agent_info in enumerate(self.agents):
+            agent = agent_info['agent']
+            agentid2power_proportion[agent.unique_id] = agent_power_proportion_vec[ii]
+
+        return agent_power_proportion_vec, agentid2power_proportion
+
     def _update_agents(self, update_day=None):
         day_idx = self.current_day if update_day is None else update_day
         date_in = self.filecoin_df.iloc[day_idx]['date']
 
         total_day_rewards = self.filecoin_df.iloc[day_idx]["day_network_reward"]
+        
         # total_day_onboard_and_renew_pib = self.filecoin_df.iloc[day_idx]["day_onboarded_qap_pib"] +  self.filecoin_df.iloc[day_idx]["day_renewed_qap_pib"]
-        total_network_qap = self.filecoin_df.iloc[day_idx]["total_qa_power_eib"] * constants.EIB
-
+        # total_network_qap = self.filecoin_df.iloc[day_idx]["total_qa_power_eib"] * constants.EIB
         # NOTE: there is a discrepency between the debug_agent_qap_sum and the total_network_qap.
         # My observations are that it is constantly ~0.4 EiB.  Need to track this down, but for now
         # we do this pre-processing to ensure that only the amount of rewards available are disbursed.
         # This delta seems to remain regardless of the number of agents or configuration of rbp/rr/fpr,
         # so it is a constant factor somewhere that needs to be tracked down.
-        agent_reward_ratio_vec = np.zeros(len(self.agents))
-        for ii, agent_info in enumerate(self.agents):
-            agent = agent_info['agent']
+        # agent_reward_ratio_vec = np.zeros(len(self.agents))
+        # for ii, agent_info in enumerate(self.agents):
+        #     agent = agent_info['agent']
 
-            total_agent_qap = agent.get_active_qa_power_at_date(date_in) * constants.PIB
-
-            # print(ii, date_in, '%0.02f' % (total_agent_qap/constants.EIB,), '%0.02f' % (total_network_qap/constants.EIB,))
-
-            agent_reward_ratio = min(total_agent_qap/total_network_qap, 1.0) # account for numerical issues
-            agent_reward_ratio_vec[ii] = agent_reward_ratio
-        agent_reward_ratio_vec = agent_reward_ratio_vec / sum(agent_reward_ratio_vec)
-        assert np.isclose(sum(agent_reward_ratio_vec), 1.0), f"agent_reward_ratio_vec sum is not close to 1.0: {sum(agent_reward_ratio_vec)}"
+        #     total_agent_qap = agent.get_active_qa_power_at_date(date_in) * constants.PIB
+        #     agent_reward_ratio = min(total_agent_qap/total_network_qap, 1.0) # account for numerical issues
+        #     agent_reward_ratio_vec[ii] = agent_reward_ratio
+        # agent_reward_ratio_vec = agent_reward_ratio_vec / sum(agent_reward_ratio_vec)
+        # assert np.isclose(sum(agent_reward_ratio_vec), 1.0), f"agent_reward_ratio_vec sum is not close to 1.0: {sum(agent_reward_ratio_vec)}"
+        agent_reward_ratio_vec, _ = self._get_agent_power_proportion(update_day=day_idx)
 
         debug_agent_qap_sum = 0
         for ii, agent_info in enumerate(self.agents):
