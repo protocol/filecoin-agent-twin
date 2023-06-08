@@ -212,8 +212,8 @@ class DCAAgentTerminate(SPAgent):
                 # which aspects of power get renewed is dependent on the setting "renewals_setting" in the FilecoinModel object
                 cc_power = se_power_dict['se_cc_power']
                 deal_power = se_power_dict['se_deal_power']
-                cc_power_to_renew = cc_power*self.renewal_rate 
-                deal_power_to_renew = deal_power*self.renewal_rate  
+                cc_power_to_renew = cc_power*self.renewal_rate
+                deal_power_to_renew = deal_power*self.renewal_rate
 
                 # print('DCATerminate[%d]:' % (self.unique_id,), se_power_dict, cc_power_to_renew, deal_power_to_renew)
 
