@@ -410,13 +410,13 @@ class FilecoinModel(mesa.Model):
         # len_since_network_start = (self.end_date - constants.NETWORK_DATA_START).days
         known_scheduled_pledge_release_vec = scheduled_df["total_pledge"].values
         start_idx = self.filecoin_df[self.filecoin_df['date'] == scheduled_df.iloc[0]['date']].index[0]
-        end_idx = self.filecoin_df[self.filecoin_df['date'] == scheduled_df.iloc[-1]['date']].index[0]
+        end_idx = start_idx + len(known_scheduled_pledge_release_vec) - 1
         self.filecoin_df['scheduled_pledge_release'] = 0
         # print('setting scheduled_pledge_release for dates:', 
         #       scheduled_df.iloc[0]['date'], 'to', scheduled_df.iloc[-1]['date'], 
         #       start_idx, end_idx, len(known_scheduled_pledge_release_vec), type(known_scheduled_pledge_release_vec),
         #       self.filecoin_df.loc[start_idx, 'date'], self.filecoin_df.loc[end_idx, 'date'])
-        self.filecoin_df.loc[start_idx:end_idx-1, 'scheduled_pledge_release'] = known_scheduled_pledge_release_vec
+        self.filecoin_df.loc[start_idx:end_idx, 'scheduled_pledge_release'] = known_scheduled_pledge_release_vec
         
         self.zero_cum_capped_power = data.get_cum_capped_rb_power(constants.NETWORK_DATA_START)
 
@@ -914,6 +914,7 @@ class FilecoinModel(mesa.Model):
             agent_power_proportion = min(total_agent_qap/total_network_qap, 1.0) # account for numerical issues
             agent_power_proportion_vec[ii] = agent_power_proportion
             
+        # print(agent_power_proportion_vec, sum(agent_power_proportion_vec))
         agent_power_proportion_vec = agent_power_proportion_vec / sum(agent_power_proportion_vec)
         agentid2power_proportion = {}
         for ii, agent_info in enumerate(self.agents):
