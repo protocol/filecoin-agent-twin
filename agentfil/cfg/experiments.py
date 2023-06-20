@@ -769,6 +769,35 @@ for population_power in population_power_breakdown:
                 for min_roi in min_roi_vec:
                     for max_roi in max_roi_vec:
                         for roi_agent_optimism in roi_agent_optimism_vec:
+                            name = 'ROI_%d_%0.2f_%0.02f-Leave_%0.02f-FP_%0.02f-CC_%0.02f-MX_%0.02f-MinRBP_%0.02f-MaxRBP_%0.02f-MinRR_%0.02f-MaxRR_%0.02f-FPR_%0.02f-DR_%d' % \
+                                (roi_agent_optimism, min_roi, max_roi, subpopulation_terminate_pct, 
+                                    agent_power_distribution[0], agent_power_distribution[1], agent_power_distribution[2],
+                                    total_min_onboard_rbp, total_max_onboard_rbp, min_rr, max_rr,
+                                    fil_plus_rate, fil_supply_discount_rate)
+                            name2experiment[name] = {
+                                'module_name': 'agentfil.cfg.exp_roi_leave',
+                                'instantiator': 'ExpROIAdaptDCALeave',
+                                'instantiator_kwargs': {
+                                    'num_agents':num_agents, 
+                                    'agent_power_distribution':agent_power_distribution,
+                                    'subpopulation_terminate_pct':subpopulation_terminate_pct,
+                                    'max_sealing_throughput':C.DEFAULT_MAX_SEALING_THROUGHPUT_PIB,
+
+                                    'min_daily_rb_onboard_pib':total_min_onboard_rbp,
+                                    'max_daily_rb_onboard_pib':total_max_onboard_rbp,
+                                    'min_renewal_rate':min_rr,
+                                    'max_renewal_rate':max_rr,
+                                    'fil_plus_rate':fil_plus_rate,
+                                    'min_roi':min_roi,
+                                    'max_roi':max_roi,
+                                    'roi_agent_optimism':roi_agent_optimism,
+
+                                    'sector_duration': sector_duration,
+                                    'fil_supply_discount_rate':fil_supply_discount_rate,
+                                    'terminate_date': terminate_date,
+                                },
+                            }
+
                             name = 'ROI_%d_%0.2f_%0.02f-Terminate_%0.02f-FP_%0.02f-CC_%0.02f-MX_%0.02f-MinRBP_%0.02f-MaxRBP_%0.02f-MinRR_%0.02f-MaxRR_%0.02f-FPR_%0.02f-DR_%d' % \
                                 (roi_agent_optimism, min_roi, max_roi, subpopulation_terminate_pct, 
                                     agent_power_distribution[0], agent_power_distribution[1], agent_power_distribution[2],

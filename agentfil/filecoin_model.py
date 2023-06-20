@@ -511,6 +511,7 @@ class FilecoinModel(mesa.Model):
         power_stats_df['cum_baseline_reward'] = power_stats_df['network_time'].pipe(minting.cum_baseline_reward)
         power_stats_df['cum_network_reward'] = power_stats_df['cum_baseline_reward'].values + filecoin_df_subset['cum_simple_reward'].values
         power_stats_df['day_network_reward'] = power_stats_df['cum_network_reward'].diff().fillna(method='backfill')
+        power_stats_df['day_simple_reward'] = power_stats_df['cum_simple_reward'].diff().fillna(method='backfill')
         # ##########################################################################################
 
         # concatenate w/ NA for rest of the simulation so that the merge doesn't delete the data in the master DF

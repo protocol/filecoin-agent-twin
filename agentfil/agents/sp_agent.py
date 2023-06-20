@@ -466,11 +466,9 @@ class SPAgent(mesa.Agent):
         discount_rate_pct = self.model.get_discount_rate_pct(date_in)
         discount_rate = discount_rate_pct / 100.0
         
-        #future_value = pledge_amount * (1 + (discount_rate/compounding_freq_yrs)) ** (duration_yrs*compounding_freq_yrs)
         future_value = pledge_amount * np.exp(discount_rate * duration_yrs)
         return future_value
     
-    ## this function is for debugging only
     def _trace_modeled_power(self, onboarding_date, current_date):
         arr_idx = np.where(self.t == onboarding_date)[0][0]
         rb_onboarded_power = self.onboarded_power[arr_idx][0]
@@ -624,8 +622,9 @@ class SPAgent(mesa.Agent):
         assert np.isclose(np.sum(np.asarray(release_pct_vector)), 1.0, rtol=1e-2, atol=1e-2), "%0.02f --> %s" % (np.sum(np.asarray(release_pct_vector)), str(release_pct_vector))
 
         known_power_onboarding_date_approx = constants.NETWORK_DATA_START
-        filecoin_df_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(known_power_onboarding_date_approx)].index[0]
-        rewards_per_sector_during_onboarding = self.model.filecoin_df.loc[filecoin_df_idx, 'day_rewards_per_sector']
+        historical_day_rewards_per_sector = self.model.filecoin_df[self.model.filecoin_df['date'] <= self.start_date]['day_rewards_per_sector']
+        rewards_per_sector_during_onboarding = historical_day_rewards_per_sector.median()
+        
         ix = 0
         total_rb_released = 0
         while current_date < end_of_known_power_date:
