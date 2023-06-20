@@ -15,7 +15,7 @@ class ExperimentCfg(ABC):
         """
         pass
 
-    def get_minting_process_cfg(self) -> Dict:
+    def get_rewards_per_sector_process_cfg(self) -> Dict:
         """
         Code to configure the minting process. Must return a dictionary of kwargs 
         will be passed to the minting process constructor.
