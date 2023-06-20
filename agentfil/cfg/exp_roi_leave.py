@@ -3,13 +3,13 @@ from typing import Dict, Tuple, List
 import numpy as np
 
 from agentfil.cfg.experiment_cfg import ExperimentCfg
-from agentfil.agents.dca_agent import DCAAgentTerminate
+from agentfil.agents.dca_agent import DCAAgentLeaveNetwork
 from agentfil.agents.roi_agent import ROIAgentDynamicOnboard
 import agentfil.constants as C
 
 import argparse
 
-class ExpROIAdaptDCATerminate(ExperimentCfg):
+class ExpROIAdaptDCALeave(ExperimentCfg):
     def __init__(self, num_agents, 
                  agent_power_distribution,
                  subpopulation_terminate_pct,
@@ -56,7 +56,7 @@ class ExpROIAdaptDCATerminate(ExperimentCfg):
         self.fil_supply_discount_rate = fil_supply_discount_rate
 
     def get_agent_cfg(self) -> Tuple[List, List, List]:
-        agent_types = [ROIAgentDynamicOnboard, DCAAgentTerminate] * self.num_agents
+        agent_types = [ROIAgentDynamicOnboard, DCAAgentLeaveNetwork] * self.num_agents
         agent_power_distribution = []
         
         agent_kwargs_vec = []
@@ -129,15 +129,15 @@ def generate_terminate_experiments(output_fp):
         [0.695, 0.295, 0.01],
         [0.295, 0.695, 0.01],
     ]
-    subpopulation_terminate_pcts = [0.3, 0.7]
+    subpopulation_terminate_pcts = [0.3, 0.5, 0.7]
 
     total_min_onboard_rbp = 1
     total_max_onboard_rbp_vec = [3,6,15]
     min_rr = 0.2
-    max_rr_vec = [0.8]
-    min_roi_vec = [0.1]
-    max_roi_vec = [0.8]
-    roi_agent_optimism_vec = [4]
+    max_rr_vec = [0.4, 0.8]
+    min_roi_vec = [0.1, 0.3]
+    max_roi_vec = [0.8, 1.0]
+    roi_agent_optimism_vec = [2,4]
     fil_plus_rate = 0.8    # for the mixed agents which decide to stay on the network
     fil_supply_discount_rate = 10  # a noop when using ROI agents
 
@@ -149,7 +149,7 @@ def generate_terminate_experiments(output_fp):
                     for min_roi in min_roi_vec:
                         for max_roi in max_roi_vec:
                             for roi_agent_optimism in roi_agent_optimism_vec:
-                                name = 'ROI_%d_%0.2f_%0.02f-Terminate_%0.02f-FP_%0.02f-CC_%0.02f-MX_%0.02f-MinRBP_%0.02f-MaxRBP_%0.02f-MinRR_%0.02f-MaxRR_%0.02f-FPR_%0.02f-DR_%d' % \
+                                name = 'ROI_%d_%0.2f_%0.02f-Leave_%0.02f-FP_%0.02f-CC_%0.02f-MX_%0.02f-MinRBP_%0.02f-MaxRBP_%0.02f-MinRR_%0.02f-MaxRR_%0.02f-FPR_%0.02f-DR_%d' % \
                                     (roi_agent_optimism, min_roi, max_roi, subpopulation_terminate_pct, 
                                         agent_power_distribution[0], agent_power_distribution[1], agent_power_distribution[2],
                                         total_min_onboard_rbp, total_max_onboard_rbp, min_rr, max_rr,
@@ -165,7 +165,7 @@ if __name__ == '__main__':
     # Generate configurations for the SDM experiments and write them to a config file
     # that can be used by the experiment runner
     parser = argparse.ArgumentParser()
-    parser.add_argument('--output_fp', type=str, default='roi_terminate.txt')
+    parser.add_argument('--output_fp', type=str, default='roi_leave.txt')
     
     args = parser.parse_args()
     output_fp = args.output_fp

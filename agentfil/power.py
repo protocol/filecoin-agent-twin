@@ -7,6 +7,10 @@ class Power:
     def __add__(self, other):
         assert self.power_type == other.power_type, "Cannot add power of different types"
         return Power(self.pib + other.pib, self.power_type, self.duration)
+    
+    def __sub__(self, other):
+        assert self.power_type == other.power_type, "Cannot subtract power of different types"
+        return Power(self.pib - other.pib, self.power_type, self.duration)
 
     def __repr__(self) -> str:
         return 'Power(%d, %s, %d)' % (self.pib, self.power_type, self.duration)

@@ -52,11 +52,4 @@ class SPAgent_Backtest(SPAgent):
         # print("Backtest Seeding agent: %d from index=%d:%d" % (self.unique_id, ii_start, global_ii))
 
     def step(self):
-        # nothing needs to happen in the step function b/c the 
-        # vectors were already seeded with the bactesting information, so 
-        # effectively the backtesting data already made all of the decisions.
-
-        # call the book-keeping stuff.  We do this manually instead of
-        # calling the super() because we don't want to auto-update the SE power
-        self.current_day += 1
-        self.current_date += timedelta(days=1)
+        self._bookkeep()
