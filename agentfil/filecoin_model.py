@@ -511,7 +511,7 @@ class FilecoinModel(mesa.Model):
         power_stats_df['cum_baseline_reward'] = power_stats_df['network_time'].pipe(minting.cum_baseline_reward)
         power_stats_df['cum_network_reward'] = power_stats_df['cum_baseline_reward'].values + filecoin_df_subset['cum_simple_reward'].values
         power_stats_df['day_network_reward'] = power_stats_df['cum_network_reward'].diff().fillna(method='backfill')
-        power_stats_df['day_simple_reward'] = power_stats_df['cum_simple_reward'].diff().fillna(method='backfill')
+        power_stats_df['day_simple_reward'] = filecoin_df_subset['cum_simple_reward'].diff().fillna(method='backfill')
         # ##########################################################################################
 
         # concatenate w/ NA for rest of the simulation so that the merge doesn't delete the data in the master DF
@@ -679,6 +679,7 @@ class FilecoinModel(mesa.Model):
         cum_network_reward = cum_baseline_reward + self.filecoin_df.loc[day_idx, 'cum_simple_reward']
         self.filecoin_df.loc[day_idx, 'cum_network_reward'] = cum_network_reward
         self.filecoin_df.loc[day_idx, 'day_network_reward'] = cum_network_reward - self.filecoin_df.loc[day_idx-1, 'cum_network_reward']
+        self.filecoin_df.loc[day_idx, 'day_simple_reward'] = self.filecoin_df.loc[day_idx, 'cum_simple_reward'] - self.filecoin_df.loc[day_idx-1, 'cum_simple_reward']
 
     def _aggregate_terminations(self, update_day=None):
         day_idx = self.current_day if update_day is None else update_day
