@@ -8,6 +8,7 @@ from agentfil.agents.roi_agent import ROIAgentDynamicOnboard
 import agentfil.constants as C
 
 import argparse
+import os
 
 class ExpROIAdaptDCATerminate(ExperimentCfg):
     def __init__(self, num_agents, 
@@ -158,6 +159,59 @@ def generate_terminate_experiments(output_fp):
 
     with open(output_fp, 'w')  as f:
         for name in experiment_names:
+            f.write('%s\n' % name)
+
+
+    # A second set of limited sweeps just to compare different pledge bases
+    experiment_names_cmp = []
+    population_power_breakdown = [
+        [0.495, 0.495, 0.01],
+    ]
+    subpopulation_terminate_pcts = [0.3, 0.7]
+
+    total_min_onboard_rbp = 1
+    total_max_onboard_rbp_vec = [15]
+    min_rr = 0.2
+    max_rr_vec = [0.8]
+    min_roi_vec = [0.1]
+    max_roi_vec = [0.8]
+    roi_agent_optimism_vec = [4]
+    fil_plus_rate = 0.8    # for the mixed agents which decide to stay on the network
+    fil_supply_discount_rate = 10  # a noop when using ROI agents
+
+    for population_power in population_power_breakdown:
+        agent_power_distribution = population_power
+        for subpopulation_terminate_pct in subpopulation_terminate_pcts:
+            for total_max_onboard_rbp in total_max_onboard_rbp_vec:
+                for max_rr in max_rr_vec:
+                    for min_roi in min_roi_vec:
+                        for max_roi in max_roi_vec:
+                            for roi_agent_optimism in roi_agent_optimism_vec:
+                                name = 'ROI_%d_%0.2f_%0.02f-Terminate_%0.02f-FP_%0.02f-CC_%0.02f-MX_%0.02f-MinRBP_%0.02f-MaxRBP_%0.02f-MinRR_%0.02f-MaxRR_%0.02f-FPR_%0.02f-DR_%d' % \
+                                    (roi_agent_optimism, min_roi, max_roi, subpopulation_terminate_pct, 
+                                        agent_power_distribution[0], agent_power_distribution[1], agent_power_distribution[2],
+                                        total_min_onboard_rbp, total_max_onboard_rbp, min_rr, max_rr,
+                                        fil_plus_rate, fil_supply_discount_rate)
+                                experiment_names_cmp.append(name)
+
+                                name = 'ROI_%d_%0.2f_%0.02f-TerminateCapFoFR_%0.02f-FP_%0.02f-CC_%0.02f-MX_%0.02f-MinRBP_%0.02f-MaxRBP_%0.02f-MinRR_%0.02f-MaxRR_%0.02f-FPR_%0.02f-DR_%d' % \
+                                    (roi_agent_optimism, min_roi, max_roi, subpopulation_terminate_pct, 
+                                        agent_power_distribution[0], agent_power_distribution[1], agent_power_distribution[2],
+                                        total_min_onboard_rbp, total_max_onboard_rbp, min_rr, max_rr,
+                                        fil_plus_rate, fil_supply_discount_rate)
+                                experiment_names_cmp.append(name)
+
+                                name = 'ROI_%d_%0.2f_%0.02f-NoBaselinePledgeDenom_%0.02f-FP_%0.02f-CC_%0.02f-MX_%0.02f-MinRBP_%0.02f-MaxRBP_%0.02f-MinRR_%0.02f-MaxRR_%0.02f-FPR_%0.02f-DR_%d' % \
+                                    (roi_agent_optimism, min_roi, max_roi, subpopulation_terminate_pct, 
+                                        agent_power_distribution[0], agent_power_distribution[1], agent_power_distribution[2],
+                                        total_min_onboard_rbp, total_max_onboard_rbp, min_rr, max_rr,
+                                        fil_plus_rate, fil_supply_discount_rate)
+                                experiment_names_cmp.append(name)
+
+    fname, ext = os.path.splitext(output_fp)
+    output_fp = '%s_cmp_pledge_base%s' % (fname, ext)
+    with open(output_fp, 'w')  as f:
+        for name in experiment_names_cmp:
             f.write('%s\n' % name)
 
 
