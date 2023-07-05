@@ -695,7 +695,7 @@ for fil_supply_discount_rate in fil_supply_discount_rate_vec:
                                                 }
 
 """
-Shock experiments
+Shock experiments w/ DCA agents (no rationality)
 """
 population_power_breakdown = [
     [0.33, 0.33, 0.34],
@@ -737,6 +737,52 @@ for population_power in population_power_breakdown:
                 },
                 'filecoin_model_kwargs': {},  # do not add any policy changes, default model
             }
+
+"""
+Shock experiments w/ DCA agents (Terminate+Reonboard) (no rationality)
+"""
+subpopulation_pcts = [0.3, 0.7]  # v = % of agents that stay, 1-v = % of agents that terminate
+                                 # in the first case, 30% of agents stay and 70% of agents terminate
+                                 # in the second case, 70% of agents stay and 30% of agents terminate
+terminate_date = date(2023, 11, 1)
+
+agent_behavior_before_terminate = {
+    'rbp':6,  # across all agents in the simulation
+    'rr':0.6,     # for agents which decide to stay on the network
+    'fpr':0.8    # for the mixed agents which decide to stay on the network
+}
+
+stay_agent_behavior_after_terminate_vec = [
+    {'rbp':6, 'rr':0.6, 'fpr':0.8},
+    {'rbp':20, 'rr':0.8, 'fpr':0.8},
+    {'rbp':50, 'rr':0.8, 'fpr':0.8},
+    {'rbp':100, 'rr':0.9, 'fpr':0.8}
+]
+max_possible_rbp = 100
+
+sector_duration = 360
+
+for subpopulation_pct in subpopulation_pcts:
+    for stay_agent_behavior in stay_agent_behavior_after_terminate_vec:
+        name = 'TerminateReonboard_%0.02f_MaxRBP_%0.02f_%0.02f-RR_%0.02f_%0.02f-FPR_%0.02f_%0.02f' % \
+            (subpopulation_pct, 
+             agent_behavior_before_terminate['rbp'], stay_agent_behavior['rbp'], 
+             agent_behavior_before_terminate['rr'], stay_agent_behavior['rr'], 
+             agent_behavior_before_terminate['fpr'], stay_agent_behavior['fpr'])
+        name2experiment[name] = {
+            'module_name': 'agentfil.cfg.exp_dca_terminate_reonboard',
+            'instantiator': 'ExpDCAAgentsTerminateReonboard',
+            'instantiator_kwargs': {
+                'subpopulation_pct': subpopulation_pct,
+                'agent_max_sealing_throughput':max_possible_rbp,
+                'before_terminate_agent_behavior':agent_behavior_before_terminate,
+                'after_terminate_stay_agent_behavior':stay_agent_behavior,
+                'sector_duration': sector_duration,
+                'fil_supply_discount_rate':fil_supply_discount_rate,
+                'terminate_date': terminate_date,
+            },
+            'filecoin_model_kwargs': {},  # do not add any policy changes, default model
+        }
 
 """
 Shock w/ ROI agents
@@ -891,5 +937,38 @@ for population_power in population_power_breakdown:
                                 'filecoin_model_kwargs': {
                                     'pledge_onboard_ratio_callable': locking.no_baseline_onboard_ratio,
                                     'pledge_onboard_ratio_callable_kwargs_fn': locking.noop
+                                },
+                            }
+
+                            name = 'ROI_%d_%0.2f_%0.02f-MinPledgeDenom_%0.02f-FP_%0.02f-CC_%0.02f-MX_%0.02f-MinRBP_%0.02f-MaxRBP_%0.02f-MinRR_%0.02f-MaxRR_%0.02f-FPR_%0.02f-DR_%d' % \
+                                (roi_agent_optimism, min_roi, max_roi, subpopulation_terminate_pct, 
+                                    agent_power_distribution[0], agent_power_distribution[1], agent_power_distribution[2],
+                                    total_min_onboard_rbp, total_max_onboard_rbp, min_rr, max_rr,
+                                    fil_plus_rate, fil_supply_discount_rate)
+                            name2experiment[name] = {
+                                'module_name': 'agentfil.cfg.exp_roi_terminate',
+                                'instantiator': 'ExpROIAdaptDCATerminate',
+                                'instantiator_kwargs': {
+                                    'num_agents':num_agents, 
+                                    'agent_power_distribution':agent_power_distribution,
+                                    'subpopulation_terminate_pct':subpopulation_terminate_pct,
+                                    'max_sealing_throughput':C.DEFAULT_MAX_SEALING_THROUGHPUT_PIB,
+
+                                    'min_daily_rb_onboard_pib':total_min_onboard_rbp,
+                                    'max_daily_rb_onboard_pib':total_max_onboard_rbp,
+                                    'min_renewal_rate':min_rr,
+                                    'max_renewal_rate':max_rr,
+                                    'fil_plus_rate':fil_plus_rate,
+                                    'min_roi':min_roi,
+                                    'max_roi':max_roi,
+                                    'roi_agent_optimism':roi_agent_optimism,
+
+                                    'sector_duration': sector_duration,
+                                    'fil_supply_discount_rate':fil_supply_discount_rate,
+                                    'terminate_date': terminate_date,
+                                },
+                                'filecoin_model_kwargs': {
+                                    'pledge_onboard_ratio_callable': locking.min_pledge_onboard_ratio,
+                                    'pledge_onboard_ratio_callable_kwargs_fn': locking.min_pledge_onboard_ratio_kwargs_extract
                                 },
                             }

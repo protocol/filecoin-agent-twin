@@ -208,6 +208,13 @@ def generate_terminate_experiments(output_fp):
                                         fil_plus_rate, fil_supply_discount_rate)
                                 experiment_names_cmp.append(name)
 
+                                name = 'ROI_%d_%0.2f_%0.02f-MinPledgeDenom_%0.02f-FP_%0.02f-CC_%0.02f-MX_%0.02f-MinRBP_%0.02f-MaxRBP_%0.02f-MinRR_%0.02f-MaxRR_%0.02f-FPR_%0.02f-DR_%d' % \
+                                    (roi_agent_optimism, min_roi, max_roi, subpopulation_terminate_pct, 
+                                        agent_power_distribution[0], agent_power_distribution[1], agent_power_distribution[2],
+                                        total_min_onboard_rbp, total_max_onboard_rbp, min_rr, max_rr,
+                                        fil_plus_rate, fil_supply_discount_rate)
+                                experiment_names_cmp.append(name)
+
     fname, ext = os.path.splitext(output_fp)
     output_fp = '%s_cmp_pledge_base%s' % (fname, ext)
     with open(output_fp, 'w')  as f:

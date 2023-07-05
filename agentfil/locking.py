@@ -30,6 +30,22 @@ def fofr_cap_onboard_ratio(day_added_qa_power, total_qa_power, baseline_power,
     # return num/denom
     return (num/denom)
 
+def min_pledge_onboard_ratio_kwargs_extract(filecoin_df_day, lock_target):
+    return {
+        'target_lock': lock_target,
+        'circ_supply': filecoin_df_day['circ_supply'],
+        'min_pledge': 0.1,
+    }
+
+def min_pledge_onboard_ratio(day_added_qa_power, total_qa_power, baseline_power,
+                             target_lock=None, circ_supply=None, min_pledge=0.1):
+    """
+    Returns normalized qap growth value such that the consensus pledge will be equal to min_pledge
+    min_pledge: minimum pledge value in FIL per sector
+    # TODO: how to pass in min_pledge properly?
+    """
+    return min_pledge/(target_lock * circ_supply)  
+
 def compute_new_pledge_for_added_power(
     day_network_reward: float,
     prev_circ_supply: float,
