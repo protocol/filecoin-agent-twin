@@ -122,7 +122,16 @@ class DCAAgentTwoModes(SPAgent):
             fil_plus_rate = self.mode1_behavior['fpr']
             renewal_rate = self.mode1_behavior['rr']
         else:
-            rbp = self.mode2_behavior['rbp']
+            rbp_config = self.mode2_behavior['rbp']
+            if isinstance(rbp_config, list):
+                if rbp_config[0] == 'exponential':
+                    g = np.log(2)/365.0  # same as b(t) growth rate
+                    starting_val = rbp_config[1]
+                    rbp = starting_val*np.exp(g * self.current_day)
+                else:
+                    raise ValueError("error in configuration!")
+            else:
+                rbp = self.mode2_behavior['rbp']
             fil_plus_rate = self.mode2_behavior['fpr']
             renewal_rate = self.mode2_behavior['rr']
 

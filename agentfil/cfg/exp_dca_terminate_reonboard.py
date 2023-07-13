@@ -81,9 +81,7 @@ def generate_terminate_experiments(output_fp):
     experiment_names = []
     subpopulation_pcts = [0.3, 0.7]  # v = % of agents that stay, 1-v = % of agents that terminate
                                  # in the first case, 30% of agents stay and 70% of agents terminate
-                                 # in the second case, 70% of agents stay and 30% of agents terminate
-    terminate_date = date(2023, 11, 1)
-
+                                 # in the second case, 70% of agents stay and 30% of agents terminate                                
     agent_behavior_before_terminate = {
         'rbp':6,  # across all agents in the simulation
         'rr':0.6,     # for agents which decide to stay on the network
@@ -96,10 +94,7 @@ def generate_terminate_experiments(output_fp):
         {'rbp':50, 'rr':0.8, 'fpr':0.8},
         {'rbp':100, 'rr':0.9, 'fpr':0.8}
     ]
-    max_possible_rbp = 100
-
-    sector_duration = 360
-
+    
     for subpopulation_pct in subpopulation_pcts:
         for stay_agent_behavior in stay_agent_behavior_after_terminate_vec:
             name = 'TerminateReonboard_%0.02f_MaxRBP_%0.02f_%0.02f-RR_%0.02f_%0.02f-FPR_%0.02f_%0.02f' % \
@@ -108,6 +103,15 @@ def generate_terminate_experiments(output_fp):
              agent_behavior_before_terminate['rr'], stay_agent_behavior['rr'], 
              agent_behavior_before_terminate['fpr'], stay_agent_behavior['fpr'])
             experiment_names.append(name)
+
+            name = 'TerminateReonboard_MinPledgeDenom_%0.02f_MaxRBP_%0.02f_%0.02f-RR_%0.02f_%0.02f-FPR_%0.02f_%0.02f' % \
+            (subpopulation_pct, 
+             agent_behavior_before_terminate['rbp'], stay_agent_behavior['rbp'], 
+             agent_behavior_before_terminate['rr'], stay_agent_behavior['rr'], 
+             agent_behavior_before_terminate['fpr'], stay_agent_behavior['fpr'])
+            experiment_names.append(name)
+    
+    
 
     with open(output_fp, 'w')  as f:
         for name in experiment_names:

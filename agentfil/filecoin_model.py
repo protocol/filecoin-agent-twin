@@ -6,13 +6,12 @@ from datetime import timedelta
 import os
 import pickle
 
-from mechafil import data, vesting, minting, supply
+from mechafil import data, vesting, minting
 
 from . import locking
 from . import constants
 from .agents import sp_agent
 from . import rewards_per_sector_process
-from . import capital_inflow_process
 from . import fil_supply_discount_rate_process
 
 
@@ -317,7 +316,7 @@ class FilecoinModel(mesa.Model):
                 pledge_onboard_ratio_callable_kwargs = {}
             else:
                 pledge_onboard_ratio_callable_kwargs = self.pledge_onboard_ratio_callable_kwargs_fn(
-                    self.filecoin_df.iloc[prev_day_idx], self.lock_target
+                    date_in, self.filecoin_df.iloc[prev_day_idx], self.lock_target
                 )
 
             pledge_estimate = locking.compute_new_pledge_for_added_power(
@@ -734,7 +733,7 @@ class FilecoinModel(mesa.Model):
                 pledge_onboard_ratio_callable_kwargs = {}
             else:
                 pledge_onboard_ratio_callable_kwargs = self.pledge_onboard_ratio_callable_kwargs_fn(
-                    self.filecoin_df.iloc[day_idx-1], self.lock_target
+                    date_in, self.filecoin_df.iloc[day_idx-1], self.lock_target
                 )
             
             # compute total pledge this agent will locked
@@ -845,7 +844,14 @@ class FilecoinModel(mesa.Model):
             agent_accounting_df_idx = agent.accounting_df[pd.to_datetime(agent.accounting_df['date']) == pd.to_datetime(current_date)].index[0]
             agent_scheduled_pledge_release = agent.accounting_df["scheduled_pledge_release"].iloc[agent_accounting_df_idx]
 
-            agent_pledge_delta = supply.compute_day_delta_pledge(
+            if self.pledge_onboard_ratio_callable_kwargs_fn is None:
+                pledge_onboard_ratio_callable_kwargs = {}
+            else:
+                pledge_onboard_ratio_callable_kwargs = self.pledge_onboard_ratio_callable_kwargs_fn(
+                    current_date, self.filecoin_df.iloc[day_idx-1], self.lock_target
+                )
+
+            agent_pledge_delta = locking.compute_day_delta_pledge(
                 day_network_reward,
                 prev_circ_supply,
                 agent_onboarded_qap,
@@ -855,12 +861,14 @@ class FilecoinModel(mesa.Model):
                 agent_rr,
                 agent_scheduled_pledge_release,
                 self.lock_target,
+                onboard_ratio_callable=self.pledge_onboard_ratio_callable,
+                onboard_ratio_callable_kwargs=pledge_onboard_ratio_callable_kwargs
             )
             pledge_delta += agent_pledge_delta
 
         # Compute daily change in block rewards collateral
-        day_locked_rewards = supply.compute_day_locked_rewards(day_network_reward)
-        day_reward_release = supply.compute_day_reward_release(prev_network_locked_reward)
+        day_locked_rewards = locking.compute_day_locked_rewards(day_network_reward)
+        day_reward_release = locking.compute_day_reward_release(prev_network_locked_reward)
         reward_delta = day_locked_rewards - day_reward_release
         
         # Update dataframe
