@@ -6,12 +6,12 @@ from datetime import timedelta
 import os
 import pickle
 
-from mechafil import data, vesting, minting, supply, locking
+from mechafil import data, vesting, minting
 
+from . import locking
 from . import constants
 from .agents import sp_agent
 from . import rewards_per_sector_process
-from . import capital_inflow_process
 from . import fil_supply_discount_rate_process
 
 
@@ -63,9 +63,10 @@ class FilecoinModel(mesa.Model):
                  agent_types=None, agent_kwargs_list=None, agent_power_distributions=None,
                  compute_cs_from_networkdatastart=True, use_historical_gas=True,
                  price_process_kwargs=None, rewards_per_sector_process_kwargs=None, 
-                 capital_inflow_process_kwargs=None, capital_inflow_distribution_policy=None, capital_inflow_distribution_policy_kwargs=None,
                  fil_supply_discount_rate_process_kwargs=None,
                  sdm=None, sdm_kwargs=None,  # TODO: try to generalize this as a set of possible protocol updates
+                 pledge_onboard_ratio_callable=None,  # defaults to onboard ratio defined in the spec: qa_added_power / max(total_qa, baseline)
+                 pledge_onboard_ratio_callable_kwargs_fn=None,
                  user_post_network_update_callables=None, user_post_network_update_callables_kwargs_list=None,
                  renewals_setting='optimistic',
                  random_seed=1234,
@@ -96,9 +97,6 @@ class FilecoinModel(mesa.Model):
                             is only relevant when compute_cs_from_start=True.
         price_process_kwargs: a dictionary of keyword arguments to pass to the price process
         minting_process_kwargs: a dictionary of keyword arguments to pass to the minting process
-        capital_inflow_process_kwargs: a dictionary of keyword arguments to pass to the capital inflow process
-        capital_inflow_distribution_policy: a function that determines the percentage of total capital inflow that is allocated to a given miner
-        capital_inflow_distribution_policy_kwargs: a dictionary of keyword arguments to pass to the capital inflow distribution policy
         fil_supply_discount_rate_process_kwargs: a dictionary of keyword arguments to pass to the FIL supply discount rate process
         sdm: a function handle which computes a SDM multiplier. It must have the following signature:
             def sdm(...):
@@ -131,15 +129,7 @@ class FilecoinModel(mesa.Model):
         self.rewards_per_sector_process_kwargs = rewards_per_sector_process_kwargs
         if self.rewards_per_sector_process_kwargs is None:
             self.rewards_per_sector_process_kwargs = {}
-        self.capital_inflow_process_kwargs = capital_inflow_process_kwargs
-        if self.capital_inflow_process_kwargs is None:
-            self.capital_inflow_process_kwargs = {}
-        self.capital_inflow_distribution_policy = capital_inflow_distribution_policy
-        if self.capital_inflow_distribution_policy is None:
-            self.capital_inflow_distribution_policy = capital_inflow_process.power_proportional_capital_distribution_policy
-        self.capital_inflow_distribution_policy_kwargs = capital_inflow_distribution_policy_kwargs
-        if self.capital_inflow_distribution_policy_kwargs is None:
-            self.capital_inflow_distribution_policy_kwargs = {}
+
         self.fil_supply_discount_rate_process_kwargs = fil_supply_discount_rate_process_kwargs
         if self.fil_supply_discount_rate_process_kwargs is None:
             self.fil_supply_discount_rate_process_kwargs = {}
@@ -154,6 +144,13 @@ class FilecoinModel(mesa.Model):
         self.sdm = sdm
         self.sdm_kwargs = sdm_kwargs
 
+        self.pledge_onboard_ratio_callable = pledge_onboard_ratio_callable
+        if self.pledge_onboard_ratio_callable is None:
+            self.pledge_onboard_ratio_callable = locking.spec_onboard_ratio
+        self.pledge_onboard_ratio_callable_kwargs_fn = pledge_onboard_ratio_callable_kwargs_fn
+        if self.pledge_onboard_ratio_callable_kwargs_fn is None:
+            self.pledge_onboard_ratio_callable_kwargs_fn = locking.noop
+        
         self.renewals_setting = renewals_setting
 
         self.random_seed = random_seed
@@ -302,6 +299,7 @@ class FilecoinModel(mesa.Model):
         qa_power_pib : float
             QA power to onboard
         """
+        
         filecoin_df_idx = self.filecoin_df[self.filecoin_df['date'] == date_in].index[0]
         prev_day_idx = filecoin_df_idx - 1
         
@@ -310,19 +308,28 @@ class FilecoinModel(mesa.Model):
         prev_baseline_power_pib = self.filecoin_df.loc[prev_day_idx, 'network_baseline'] / constants.PIB
         prev_day_network_reward = self.filecoin_df.loc[prev_day_idx, 'day_network_reward']
 
-        #### NOTE: this is the same as locking.compute_new_pledge_for_added_power
-        #### consider calling that function directly
-        # estimate 20 days block reward
-        storage_pledge = 20.0 * prev_day_network_reward * (qa_power_pib / prev_total_qa_power_pib)
-        # consensus collateral
-        normalized_qap_growth = qa_power_pib / max(prev_total_qa_power_pib, prev_baseline_power_pib)
-        consensus_pledge = max(self.lock_target * prev_circ_supply * normalized_qap_growth, 0)
-        # total added pledge
-        added_pledge = storage_pledge + consensus_pledge
+        if qa_power_pib == 0:
+            # if no-onboards, then keep the pledge estimate as the previous day to keep the trajectory smooth
+            pledge_estimate = self.filecoin_df.loc[prev_day_idx, 'day_pledge_per_QAP'] * (qa_power_pib / constants.SECTOR_SIZE)
+        else:
+            if self.pledge_onboard_ratio_callable_kwargs_fn is None:
+                pledge_onboard_ratio_callable_kwargs = {}
+            else:
+                pledge_onboard_ratio_callable_kwargs = self.pledge_onboard_ratio_callable_kwargs_fn(
+                    date_in, self.filecoin_df.iloc[prev_day_idx], self.lock_target
+                )
 
-        pledge_cap_FIL_per_sector = 1.0
-        pledge_cap = qa_power_pib * constants.PIB * pledge_cap_FIL_per_sector / constants.SECTOR_SIZE
-        return min(pledge_cap, added_pledge)
+            pledge_estimate = locking.compute_new_pledge_for_added_power(
+                prev_day_network_reward,
+                prev_circ_supply,
+                qa_power_pib * constants.PIB,
+                prev_total_qa_power_pib * constants.PIB,
+                prev_baseline_power_pib * constants.PIB,
+                self.lock_target,
+                self.pledge_onboard_ratio_callable,
+                pledge_onboard_ratio_callable_kwargs
+            )
+        return pledge_estimate
     
     def get_discount_rate_pct(self, date_in):
         day_idx = self.filecoin_df[self.filecoin_df['date'] == date_in].index[0]
@@ -404,18 +411,11 @@ class FilecoinModel(mesa.Model):
         self.qap0 = merged_df.iloc[0]['total_qa_power_eib']
         self.max_date_se_power = self.df_future.iloc[-1]['date']
 
-        # print('date', merged_df.iloc[0]['date'], 'rbp0', self.rbp0, 'qap0', self.qap0)
-        
         # this vector starts from the first day of the simulation
-        # len_since_network_start = (self.end_date - constants.NETWORK_DATA_START).days
         known_scheduled_pledge_release_vec = scheduled_df["total_pledge"].values
         start_idx = self.filecoin_df[self.filecoin_df['date'] == scheduled_df.iloc[0]['date']].index[0]
         end_idx = start_idx + len(known_scheduled_pledge_release_vec) - 1
         self.filecoin_df['scheduled_pledge_release'] = 0
-        # print('setting scheduled_pledge_release for dates:', 
-        #       scheduled_df.iloc[0]['date'], 'to', scheduled_df.iloc[-1]['date'], 
-        #       start_idx, end_idx, len(known_scheduled_pledge_release_vec), type(known_scheduled_pledge_release_vec),
-        #       self.filecoin_df.loc[start_idx, 'date'], self.filecoin_df.loc[end_idx, 'date'])
         self.filecoin_df.loc[start_idx:end_idx, 'scheduled_pledge_release'] = known_scheduled_pledge_release_vec
         
         self.zero_cum_capped_power = data.get_cum_capped_rb_power(constants.NETWORK_DATA_START)
@@ -473,8 +473,6 @@ class FilecoinModel(mesa.Model):
         # generated quantities which are only updated from simulation_start
         self.filecoin_df['day_pledge_per_QAP'] = 0.0
         self.filecoin_df['day_rewards_per_sector'] = 0.0
-        # self.filecoin_df['capital_inflow_pct'] = 0.0
-        # self.filecoin_df['capital_inflow_FIL'] = 0.0
         self.filecoin_df['discount_rate_pct'] = 0.0
 
         # for debugging
@@ -731,6 +729,13 @@ class FilecoinModel(mesa.Model):
             day_onboarded_qap = agent_day_power_stats['day_onboarded_qa_power_pib'] * constants.PIB
             day_renewed_qap = agent_day_power_stats['extended_qa_pib'] * constants.PIB
             
+            if self.pledge_onboard_ratio_callable_kwargs_fn is None:
+                pledge_onboard_ratio_callable_kwargs = {}
+            else:
+                pledge_onboard_ratio_callable_kwargs = self.pledge_onboard_ratio_callable_kwargs_fn(
+                    date_in, self.filecoin_df.iloc[day_idx-1], self.lock_target
+                )
+            
             # compute total pledge this agent will locked
             onboards_locked = locking.compute_new_pledge_for_added_power(
                 day_network_reward,
@@ -739,6 +744,8 @@ class FilecoinModel(mesa.Model):
                 total_qa,
                 baseline_power,
                 self.lock_target,
+                self.pledge_onboard_ratio_callable,
+                pledge_onboard_ratio_callable_kwargs
             )
             renews_locked = locking.compute_new_pledge_for_added_power(
                 day_network_reward,
@@ -747,6 +754,8 @@ class FilecoinModel(mesa.Model):
                 total_qa,
                 baseline_power,
                 self.lock_target,
+                self.pledge_onboard_ratio_callable,
+                pledge_onboard_ratio_callable_kwargs
             )
 
             # get the original pledge that was scheduled to expire on this day 
@@ -835,7 +844,14 @@ class FilecoinModel(mesa.Model):
             agent_accounting_df_idx = agent.accounting_df[pd.to_datetime(agent.accounting_df['date']) == pd.to_datetime(current_date)].index[0]
             agent_scheduled_pledge_release = agent.accounting_df["scheduled_pledge_release"].iloc[agent_accounting_df_idx]
 
-            agent_pledge_delta = supply.compute_day_delta_pledge(
+            if self.pledge_onboard_ratio_callable_kwargs_fn is None:
+                pledge_onboard_ratio_callable_kwargs = {}
+            else:
+                pledge_onboard_ratio_callable_kwargs = self.pledge_onboard_ratio_callable_kwargs_fn(
+                    current_date, self.filecoin_df.iloc[day_idx-1], self.lock_target
+                )
+
+            agent_pledge_delta = locking.compute_day_delta_pledge(
                 day_network_reward,
                 prev_circ_supply,
                 agent_onboarded_qap,
@@ -845,12 +861,14 @@ class FilecoinModel(mesa.Model):
                 agent_rr,
                 agent_scheduled_pledge_release,
                 self.lock_target,
+                onboard_ratio_callable=self.pledge_onboard_ratio_callable,
+                onboard_ratio_callable_kwargs=pledge_onboard_ratio_callable_kwargs
             )
             pledge_delta += agent_pledge_delta
 
         # Compute daily change in block rewards collateral
-        day_locked_rewards = supply.compute_day_locked_rewards(day_network_reward)
-        day_reward_release = supply.compute_day_reward_release(prev_network_locked_reward)
+        day_locked_rewards = locking.compute_day_locked_rewards(day_network_reward)
+        day_reward_release = locking.compute_day_reward_release(prev_network_locked_reward)
         reward_delta = day_locked_rewards - day_reward_release
         
         # Update dataframe

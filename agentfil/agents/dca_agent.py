@@ -85,6 +85,108 @@ class DCAAgent(SPAgent):
 
         if self.debug_mode:
             return onboard_args_to_return, renew_args_to_return
+        
+class DCAAgentTwoModes(SPAgent):
+    """
+    The Dollar-Cost-Averaging agent is a simple agent that onboards a fixed amount of power every day
+    This is based on the common investment strategy of dollar-cost-averaging.
+
+    TODO
+     [ ] - vectorize the onboarding, renewal rate and FIL+ rates
+    """
+    def __init__(self, model, id, historical_power, start_date, end_date,
+                 max_sealing_throughput=constants.DEFAULT_MAX_SEALING_THROUGHPUT_PIB, 
+                 mode1_behavior=None, mode2_date=None, mode2_behavior=None,
+                 sector_duration=365, debug_mode=False):
+        """
+
+        debug_mode - if True, the agent will compute the power scheduled to be onboarded/renewed, but will not actually
+                     onboard/renew that power, but rather return the values.  This can be used for debugging
+                     or other purposes
+        """
+        super().__init__(model, id, historical_power, start_date, end_date, max_sealing_throughput_pib=max_sealing_throughput)
+        
+        self.sector_duration = sector_duration
+        self.sector_duration_yrs = sector_duration / 365
+
+        self.mode1_behavior = mode1_behavior
+        self.mode2_date = mode2_date
+        self.mode2_behavior = mode2_behavior
+        
+        self.debug_mode = debug_mode
+
+    def step(self):
+        if self.current_date < self.mode2_date:
+            # we stop onboarding and renewing power after this date
+            rbp = self.mode1_behavior['rbp']
+            fil_plus_rate = self.mode1_behavior['fpr']
+            renewal_rate = self.mode1_behavior['rr']
+        else:
+            rbp_config = self.mode2_behavior['rbp']
+            if isinstance(rbp_config, list):
+                if rbp_config[0] == 'exponential':
+                    g = np.log(2)/365.0  # same as b(t) growth rate
+                    starting_val = rbp_config[1]
+                    rbp = starting_val*np.exp(g * self.current_day)
+                else:
+                    raise ValueError("error in configuration!")
+            else:
+                rbp = self.mode2_behavior['rbp']
+            fil_plus_rate = self.mode2_behavior['fpr']
+            renewal_rate = self.mode2_behavior['rr']
+
+        rb_to_onboard = min(rbp, self.max_sealing_throughput_pib)
+        qa_to_onboard = self.model.apply_qa_multiplier(rb_to_onboard * fil_plus_rate,
+                                                    fil_plus_multipler=constants.FIL_PLUS_MULTIPLER,
+                                                    date_in=self.current_date,
+                                                    sector_duration_days=self.sector_duration) + \
+                        rb_to_onboard * (1-fil_plus_rate)
+        pledge_per_pib = self.model.estimate_pledge_for_qa_power(self.current_date, 1.0)
+        
+        # debugging to ensure that pledge/sector seems reasonable
+        # sector_size_in_pib = constants.SECTOR_SIZE / constants.PIB
+        # pledge_per_sector = self.model.estimate_pledge_for_qa_power(self.current_date, sector_size_in_pib)
+        # print(pledge_per_pib, pledge_per_sector)
+        
+        # total_qa_onboarded = rb_to_onboard + qa_to_onboard
+        pledge_needed_for_onboarding = qa_to_onboard * pledge_per_pib
+        pledge_repayment_value_onboard = self.compute_repayment_amount_from_supply_discount_rate_model(self.current_date, 
+                                                                                                    pledge_needed_for_onboarding, 
+                                                                                                    self.sector_duration_yrs)
+        if not self.debug_mode:
+            self.onboard_power(self.current_date, rb_to_onboard, qa_to_onboard, self.sector_duration, 
+                            pledge_needed_for_onboarding, pledge_repayment_value_onboard)
+        else:
+            onboard_args_to_return = (self.current_date, rb_to_onboard, qa_to_onboard, self.sector_duration, 
+                                    pledge_needed_for_onboarding, pledge_repayment_value_onboard)
+
+        # renewals
+        if renewal_rate > 0:
+            se_power_dict = self.get_se_power_at_date(self.current_date)
+            # which aspects of power get renewed is dependent on the setting "renewals_setting" in the FilecoinModel object
+            cc_power = se_power_dict['se_cc_power']
+            deal_power = se_power_dict['se_deal_power']
+            cc_power_to_renew = cc_power*renewal_rate 
+            deal_power_to_renew = deal_power*renewal_rate  
+
+            pledge_needed_for_renewal = (cc_power_to_renew + deal_power_to_renew) * pledge_per_pib
+            pledge_repayment_value_renew = self.compute_repayment_amount_from_supply_discount_rate_model(self.current_date, 
+                                                                                                        pledge_needed_for_renewal, 
+                                                                                                        self.sector_duration_yrs)
+
+            if not self.debug_mode:
+                self.renew_power(self.current_date, cc_power_to_renew, deal_power_to_renew, self.sector_duration,
+                                pledge_needed_for_renewal, pledge_repayment_value_renew)
+            else:
+                renew_args_to_return = (self.current_date, cc_power_to_renew, deal_power_to_renew, self.sector_duration,
+                                        pledge_needed_for_renewal, pledge_repayment_value_renew)
+
+        # even if we are in debug mode, we need to step the agent b/c that updates agent internal states
+        # such as current_date
+        super().step()
+
+        if self.debug_mode:
+            return onboard_args_to_return, renew_args_to_return
 
 class DCAAgentLeaveNetwork(SPAgent):
     def __init__(self, model, id, historical_power, start_date, end_date,

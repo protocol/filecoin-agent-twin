@@ -84,8 +84,9 @@ class ROIAgent(SPAgent):
         sector_duration_yrs = sector_duration / 360.
         pledge_repayment_estimate = self.compute_repayment_amount_from_supply_discount_rate_model(date_in, prev_day_pledge_per_QAP, sector_duration_yrs)
         cost_per_sector_estimate = pledge_repayment_estimate - prev_day_pledge_per_QAP
+        total_rewards_per_sector_estimate = future_rewards_per_sector_estimate.sum()
         if prev_day_pledge_per_QAP > 0:
-            roi_estimate = (future_rewards_per_sector_estimate.sum() - cost_per_sector_estimate) / prev_day_pledge_per_QAP
+            roi_estimate = (total_rewards_per_sector_estimate - cost_per_sector_estimate) / prev_day_pledge_per_QAP
         else:
             roi_estimate = 1
         
@@ -216,6 +217,7 @@ class ROIAgentDynamicOnboard(SPAgent):
 
         for d in self.duration_vec_days:
             self.agent_info_df[f'roi_estimate_{d}'] = 0
+        self.agent_info_df['pledge_per_pib'] = 0
 
         self.debug_mode = debug_mode
 
@@ -262,7 +264,8 @@ class ROIAgentDynamicOnboard(SPAgent):
         filecoin_df_idx = self.model.filecoin_df[pd.to_datetime(self.model.filecoin_df['date']) == pd.to_datetime(date_in)].index[0]
 
         # NOTE: we need to use yesterday's metrics b/c today's haven't yet been aggregated by the system yet
-        prev_day_pledge_per_QAP = self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_pledge_per_QAP']
+        # prev_day_pledge_per_QAP = self.model.filecoin_df.loc[filecoin_df_idx-1, 'day_pledge_per_QAP']
+        prev_day_pledge_per_QAP = self.model.estimate_pledge_for_qa_power(date_in, constants.SECTOR_SIZE/constants.PIB)
 
         # print(date_in, 'prev_day_pledge_per_QAP', prev_day_pledge_per_QAP)
 
@@ -312,6 +315,9 @@ class ROIAgentDynamicOnboard(SPAgent):
             roi_estimate_vec.append(roi_estimate)
             self.agent_info_df.loc[agent_df_idx, 'roi_estimate_%d' % (d,)] = roi_estimate
             
+        pledge_per_pib = self.model.estimate_pledge_for_qa_power(self.current_date, 1.0)
+        self.agent_info_df.loc[agent_df_idx, 'pledge_per_pib'] = pledge_per_pib
+
         max_roi_idx = np.argmax(roi_estimate_vec)
         best_duration = self.duration_vec_days[max_roi_idx]
         best_duration_yrs = best_duration / 360.
@@ -326,8 +332,7 @@ class ROIAgentDynamicOnboard(SPAgent):
                                                        date_in=self.current_date,
                                                        sector_duration_days=best_duration) + \
                         rb_to_onboard * (1-self.fil_plus_rate)
-            pledge_per_pib = self.model.estimate_pledge_for_qa_power(self.current_date, 1.0)
-
+            
             pledge_needed_for_onboarding = qa_to_onboard * pledge_per_pib
             pledge_repayment_value_onboard = self.compute_repayment_amount_from_supply_discount_rate_model(self.current_date, 
                                                                                                         pledge_needed_for_onboarding, 
