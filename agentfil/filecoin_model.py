@@ -3,18 +3,15 @@ import pandas as pd
 import numpy as np
 from scipy.optimize import root
 from datetime import timedelta
-import math
 import os
-import dill
-from tqdm import tqdm
+import pickle
 
-from mechafil import data, vesting, minting, supply, locking
+from mechafil import data, vesting, minting
 
+from . import locking
 from . import constants
 from .agents import sp_agent
 from . import rewards_per_sector_process
-from . import price_process
-from . import capital_inflow_process
 from . import fil_supply_discount_rate_process
 
 
@@ -64,14 +61,16 @@ class FilecoinModel(mesa.Model):
     def __init__(self, n, start_date, end_date, spacescope_cfg=None,
                  max_day_onboard_rbp_pib=constants.DEFAULT_MAX_DAY_ONBOARD_RBP_PIB,
                  agent_types=None, agent_kwargs_list=None, agent_power_distributions=None,
-                 compute_cs_from_networkdatastart=True, use_historical_gas=False,
-                 price_process_kwargs=None, minting_process_kwargs=None, 
-                 capital_inflow_process_kwargs=None, capital_inflow_distribution_policy=None, capital_inflow_distribution_policy_kwargs=None,
+                 compute_cs_from_networkdatastart=True, use_historical_gas=True,
+                 price_process_kwargs=None, rewards_per_sector_process_kwargs=None, 
                  fil_supply_discount_rate_process_kwargs=None,
                  sdm=None, sdm_kwargs=None,  # TODO: try to generalize this as a set of possible protocol updates
+                 pledge_onboard_ratio_callable=None,  # defaults to onboard ratio defined in the spec: qa_added_power / max(total_qa, baseline)
+                 pledge_onboard_ratio_callable_kwargs_fn=None,
                  user_post_network_update_callables=None, user_post_network_update_callables_kwargs_list=None,
                  renewals_setting='optimistic',
-                 random_seed=1234):
+                 random_seed=1234,
+                 offline_historical_data=None):
         """
         n: the number of agents to instantiate
         start_date: the start date of the simulation
@@ -98,9 +97,6 @@ class FilecoinModel(mesa.Model):
                             is only relevant when compute_cs_from_start=True.
         price_process_kwargs: a dictionary of keyword arguments to pass to the price process
         minting_process_kwargs: a dictionary of keyword arguments to pass to the minting process
-        capital_inflow_process_kwargs: a dictionary of keyword arguments to pass to the capital inflow process
-        capital_inflow_distribution_policy: a function that determines the percentage of total capital inflow that is allocated to a given miner
-        capital_inflow_distribution_policy_kwargs: a dictionary of keyword arguments to pass to the capital inflow distribution policy
         fil_supply_discount_rate_process_kwargs: a dictionary of keyword arguments to pass to the FIL supply discount rate process
         sdm: a function handle which computes a SDM multiplier. It must have the following signature:
             def sdm(...):
@@ -130,18 +126,10 @@ class FilecoinModel(mesa.Model):
         self.price_process_kwargs = price_process_kwargs
         if self.price_process_kwargs is None:
             self.price_process_kwargs = {}
-        self.minting_process_kwargs = minting_process_kwargs
-        if self.minting_process_kwargs is None:
-            self.minting_process_kwargs = {}
-        self.capital_inflow_process_kwargs = capital_inflow_process_kwargs
-        if self.capital_inflow_process_kwargs is None:
-            self.capital_inflow_process_kwargs = {}
-        self.capital_inflow_distribution_policy = capital_inflow_distribution_policy
-        if self.capital_inflow_distribution_policy is None:
-            self.capital_inflow_distribution_policy = capital_inflow_process.power_proportional_capital_distribution_policy
-        self.capital_inflow_distribution_policy_kwargs = capital_inflow_distribution_policy_kwargs
-        if self.capital_inflow_distribution_policy_kwargs is None:
-            self.capital_inflow_distribution_policy_kwargs = {}
+        self.rewards_per_sector_process_kwargs = rewards_per_sector_process_kwargs
+        if self.rewards_per_sector_process_kwargs is None:
+            self.rewards_per_sector_process_kwargs = {}
+
         self.fil_supply_discount_rate_process_kwargs = fil_supply_discount_rate_process_kwargs
         if self.fil_supply_discount_rate_process_kwargs is None:
             self.fil_supply_discount_rate_process_kwargs = {}
@@ -156,6 +144,13 @@ class FilecoinModel(mesa.Model):
         self.sdm = sdm
         self.sdm_kwargs = sdm_kwargs
 
+        self.pledge_onboard_ratio_callable = pledge_onboard_ratio_callable
+        if self.pledge_onboard_ratio_callable is None:
+            self.pledge_onboard_ratio_callable = locking.spec_onboard_ratio
+        self.pledge_onboard_ratio_callable_kwargs_fn = pledge_onboard_ratio_callable_kwargs_fn
+        if self.pledge_onboard_ratio_callable_kwargs_fn is None:
+            self.pledge_onboard_ratio_callable_kwargs_fn = locking.noop
+        
         self.renewals_setting = renewals_setting
 
         self.random_seed = random_seed
@@ -169,8 +164,8 @@ class FilecoinModel(mesa.Model):
         self.compute_cs_from_networkdatastart = compute_cs_from_networkdatastart
         self.use_historical_gas = use_historical_gas
 
-        if not compute_cs_from_networkdatastart:
-            raise ValueError("Value only True supported for now ...")
+        # if not compute_cs_from_networkdatastart:
+        #     raise ValueError("Value only True supported for now ...")
 
         self.start_date = start_date
         self.current_date = start_date
@@ -189,7 +184,11 @@ class FilecoinModel(mesa.Model):
         self._setup_network_configuration()
 
         self._initialize_network_description_df()
-        self._download_historical_data()
+
+        historical_stats, scheduled_df = self._load_historical_data(offline_historical_data)
+        self._download_historical_data(historical_stats, scheduled_df)
+        
+        
         self._seed_agents(agent_types=agent_types, agent_kwargs_list=agent_kwargs_list)
         self._fast_forward_to_simulation_start()
         self._zero_agent_rewards()  # do this to establish causality between agent actions and rewards
@@ -218,6 +217,7 @@ class FilecoinModel(mesa.Model):
         day_macro_info = self._compute_macro(self.current_date)
         self._update_power_metrics(day_macro_info)
         self._update_minting()
+        self._aggregate_terminations()
         self._update_sched_expire_pledge(self.current_date)
         self._update_circulating_supply()
         self._update_generated_quantities()
@@ -247,7 +247,7 @@ class FilecoinModel(mesa.Model):
         self.global_forecast_df = pd.concat([self.global_forecast_df, pd.DataFrame({'date': future_dates})], ignore_index=True)
         
         #self.price_process = price_process.PriceProcess(self, **self.price_process_kwargs)
-        self.minting_process = rewards_per_sector_process.RewardsPerSectorProcess(self, **self.minting_process_kwargs)
+        self.minting_process = rewards_per_sector_process.RewardsPerSectorProcess(self, **self.rewards_per_sector_process_kwargs)
         #self.capital_inflow_process = capital_inflow_process.CapitalInflowProcess(self, **self.capital_inflow_process_kwargs)
         self.fil_supply_discount_rate_process = fil_supply_discount_rate_process.FILSupplyDiscountRateProcess(self, **self.fil_supply_discount_rate_process_kwargs)
 
@@ -299,6 +299,7 @@ class FilecoinModel(mesa.Model):
         qa_power_pib : float
             QA power to onboard
         """
+        
         filecoin_df_idx = self.filecoin_df[self.filecoin_df['date'] == date_in].index[0]
         prev_day_idx = filecoin_df_idx - 1
         
@@ -307,19 +308,28 @@ class FilecoinModel(mesa.Model):
         prev_baseline_power_pib = self.filecoin_df.loc[prev_day_idx, 'network_baseline'] / constants.PIB
         prev_day_network_reward = self.filecoin_df.loc[prev_day_idx, 'day_network_reward']
 
-        #### NOTE: this is the same as locking.compute_new_pledge_for_added_power
-        #### consider calling that function directly
-        # estimate 20 days block reward
-        storage_pledge = 20.0 * prev_day_network_reward * (qa_power_pib / prev_total_qa_power_pib)
-        # consensus collateral
-        normalized_qap_growth = qa_power_pib / max(prev_total_qa_power_pib, prev_baseline_power_pib)
-        consensus_pledge = max(self.lock_target * prev_circ_supply * normalized_qap_growth, 0)
-        # total added pledge
-        added_pledge = storage_pledge + consensus_pledge
+        if qa_power_pib == 0:
+            # if no-onboards, then keep the pledge estimate as the previous day to keep the trajectory smooth
+            pledge_estimate = self.filecoin_df.loc[prev_day_idx, 'day_pledge_per_QAP'] * (qa_power_pib / constants.SECTOR_SIZE)
+        else:
+            if self.pledge_onboard_ratio_callable_kwargs_fn is None:
+                pledge_onboard_ratio_callable_kwargs = {}
+            else:
+                pledge_onboard_ratio_callable_kwargs = self.pledge_onboard_ratio_callable_kwargs_fn(
+                    date_in, self.filecoin_df.iloc[prev_day_idx], self.lock_target
+                )
 
-        pledge_cap_FIL_per_sector = 1.0
-        pledge_cap = qa_power_pib * constants.PIB * pledge_cap_FIL_per_sector / constants.SECTOR_SIZE
-        return min(pledge_cap, added_pledge)
+            pledge_estimate = locking.compute_new_pledge_for_added_power(
+                prev_day_network_reward,
+                prev_circ_supply,
+                qa_power_pib * constants.PIB,
+                prev_total_qa_power_pib * constants.PIB,
+                prev_baseline_power_pib * constants.PIB,
+                self.lock_target,
+                self.pledge_onboard_ratio_callable,
+                pledge_onboard_ratio_callable_kwargs
+            )
+        return pledge_estimate
     
     def get_discount_rate_pct(self, date_in):
         day_idx = self.filecoin_df[self.filecoin_df['date'] == date_in].index[0]
@@ -338,18 +348,29 @@ class FilecoinModel(mesa.Model):
         assert len(self.agent_power_distributions) == self.num_agents
         assert np.isclose(sum(self.agent_power_distributions), 1.0)
 
-        assert len(self.agent_power_distributions) == self.num_agents
         if agent_kwargs_list is not None:
             assert len(agent_kwargs_list) == self.num_agents
 
-    def _download_historical_data(self):
+    def _load_historical_data(self, offline_historical_data):
+        if offline_historical_data is None:
+            return None, None
+        else:
+            with open(offline_historical_data, 'rb') as f:
+                offline_historical_data = pickle.load(f)
+            historical_stats = offline_historical_data['historical_stats']
+            scheduled_df = offline_historical_data['scheduled_df']
+        return historical_stats, scheduled_df
+
+    def _download_historical_data(self, historical_stats=None, scheduled_df=None):
         # TODO: have an offline method to speed this up ... otherwise takes 30s to initialize the model
-        historical_stats = data.get_historical_network_stats(
-            constants.NETWORK_DATA_START,
-            self.start_date,
-            self.end_date
-        )
-        scheduled_df = data.query_sector_expirations(constants.NETWORK_DATA_START, self.end_date)
+        if historical_stats is None:
+            historical_stats = data.get_historical_network_stats(
+                constants.NETWORK_DATA_START,
+                self.start_date,
+                self.end_date
+            )
+        if scheduled_df is None:
+            scheduled_df = data.query_sector_expirations(constants.NETWORK_DATA_START, self.end_date)
         # get the fields necessary to seed the agents into a separate dataframe that is time-aligned
         historical_stats['date'] = pd.to_datetime(historical_stats['date']).dt.date
         scheduled_df['date'] = scheduled_df['date'].dt.date
@@ -361,6 +382,7 @@ class FilecoinModel(mesa.Model):
                 'date', 
                 'day_onboarded_rb_power_pib', 'extended_rb', 'total_rb', 'terminated_rb',
                 'day_onboarded_qa_power_pib', 'extended_qa', 'total_qa', 'terminated_qa',
+                'total_raw_power_eib', 'total_qa_power_eib',
             ]
         ]
         self.df_historical = self.df_historical[self.df_historical['date'] <= (self.start_date-timedelta(days=1))]
@@ -382,19 +404,17 @@ class FilecoinModel(mesa.Model):
             }
         )
         
-
         final_date_historical = historical_stats.iloc[-1]['date']
         self.df_future = scheduled_df[scheduled_df['date'] >= final_date_historical][['date', 'sched_expire_rb_pib', 'sched_expire_qa_pib']]
 
         self.rbp0 = merged_df.iloc[0]['total_raw_power_eib']
         self.qap0 = merged_df.iloc[0]['total_qa_power_eib']
         self.max_date_se_power = self.df_future.iloc[-1]['date']
-        
+
         # this vector starts from the first day of the simulation
-        # len_since_network_start = (self.end_date - constants.NETWORK_DATA_START).days
         known_scheduled_pledge_release_vec = scheduled_df["total_pledge"].values
         start_idx = self.filecoin_df[self.filecoin_df['date'] == scheduled_df.iloc[0]['date']].index[0]
-        end_idx = self.filecoin_df[self.filecoin_df['date'] == scheduled_df.iloc[-1]['date']].index[0]
+        end_idx = start_idx + len(known_scheduled_pledge_release_vec) - 1
         self.filecoin_df['scheduled_pledge_release'] = 0
         self.filecoin_df.loc[start_idx:end_idx, 'scheduled_pledge_release'] = known_scheduled_pledge_release_vec
         
@@ -403,13 +423,18 @@ class FilecoinModel(mesa.Model):
     def _seed_agents(self, agent_types=None, agent_kwargs_list=None):
         for ii in range(self.num_agents):
             agent_power_pct = self.agent_power_distributions[ii]
+            print('seeding agent', ii, 'with power pct', agent_power_pct)
             agent_historical_df = self.df_historical.drop('date', axis=1) * agent_power_pct
             agent_historical_df['date'] = self.df_historical['date']
             agent_future_df = self.df_future.drop('date', axis=1) * agent_power_pct
             agent_future_df['date'] = self.df_future['date']
+            agent_scheduled_pledge_release_df = self.filecoin_df[['scheduled_pledge_release']] * agent_power_pct
+            agent_scheduled_pledge_release_df['date'] = self.filecoin_df['date']
             agent_seed = {
                 'historical_power': agent_historical_df,
-                'future_se_power': agent_future_df
+                'future_se_power': agent_future_df,
+                'scheduled_pledge_release': agent_scheduled_pledge_release_df,
+                'agent_power_pct': agent_power_pct,
             }
             if agent_types is not None:
                 agent_cls = agent_types[ii]
@@ -443,13 +468,16 @@ class FilecoinModel(mesa.Model):
         self.filecoin_df["cum_simple_reward"] = self.filecoin_df["days"].pipe(minting.cum_simple_minting)
         
         self.filecoin_df = self.filecoin_df.merge(vest_df, on='date', how='inner')
+        self.filecoin_df['burn_from_terminations'] = 0
 
         # generated quantities which are only updated from simulation_start
         self.filecoin_df['day_pledge_per_QAP'] = 0.0
         self.filecoin_df['day_rewards_per_sector'] = 0.0
-        self.filecoin_df['capital_inflow_pct'] = 0.0
-        self.filecoin_df['capital_inflow_FIL'] = 0.0
         self.filecoin_df['discount_rate_pct'] = 0.0
+
+        # for debugging
+        self.filecoin_df['pledge_delta'] = 0
+        self.filecoin_df['reward_delta'] = 0
     
     def _fast_forward_to_simulation_start(self):
         current_date = constants.NETWORK_DATA_START
@@ -481,6 +509,7 @@ class FilecoinModel(mesa.Model):
         power_stats_df['cum_baseline_reward'] = power_stats_df['network_time'].pipe(minting.cum_baseline_reward)
         power_stats_df['cum_network_reward'] = power_stats_df['cum_baseline_reward'].values + filecoin_df_subset['cum_simple_reward'].values
         power_stats_df['day_network_reward'] = power_stats_df['cum_network_reward'].diff().fillna(method='backfill')
+        power_stats_df['day_simple_reward'] = filecoin_df_subset['cum_simple_reward'].diff().fillna(method='backfill')
         # ##########################################################################################
 
         # concatenate w/ NA for rest of the simulation so that the merge doesn't delete the data in the master DF
@@ -528,6 +557,8 @@ class FilecoinModel(mesa.Model):
         self.filecoin_df['day_renewed_pledge'] = 0
         self.filecoin_df['network_locked_pledge'] = 0
         self.filecoin_df['network_locked_reward'] = 0
+        self.filecoin_df['original_pledge'] = 0
+        self.filecoin_df['renewal_rate'] = 0
         self.daily_burnt_fil = supply_df["burnt_fil"].diff().mean()
 
         # test consistency between mechaFIL and agentFIL by computing CS from beginning of simulation
@@ -541,12 +572,14 @@ class FilecoinModel(mesa.Model):
             self.filecoin_df.loc[start_idx, "network_locked_reward"] = locked_fil_zero / 2.0
             self.filecoin_df.loc[start_idx, "network_locked"] = locked_fil_zero
             self.filecoin_df.loc[start_idx, 'circ_supply'] = supply_df.iloc[start_idx]['circulating_fil']
+            print('Updating circulating supply statistics... --> start_date:', self.filecoin_df.loc[start_idx+1, 'date'])
             for day_idx in range(start_idx+1, end_idx):
                 date_in = self.filecoin_df.loc[day_idx, 'date']
                 self._update_sched_expire_pledge(date_in, update_filecoin_df=False)
                 self._update_circulating_supply(update_day=day_idx)
                 self._update_generated_quantities(update_day=day_idx)
                 self._update_agents(update_day=day_idx)
+            print('Finished updating CS.  Final date ->', self.filecoin_df.loc[end_idx-1, 'date'])       
         else:
             # NOTE: cum_network_reward was computed above from power inputs, use that rather than historical data
             # NOTE: vesting was computed above and is a static model, so use the precomputed vesting information
@@ -569,16 +602,9 @@ class FilecoinModel(mesa.Model):
             self.filecoin_df.loc[final_historical_data_idx+1, ["network_locked"]] = locked_fil_zero
 
         ############################################################################################################
-        day_onboarded_power_QAP = self.filecoin_df.loc[day_idx, "day_onboarded_qap_pib"] * constants.PIB   # in bytes
-        network_QAP = self.filecoin_df["total_qa_power_eib"] * constants.EIB                  # in bytes
-
-        # NOTE: this only works if compute_cs_from_networkdatastart is set to True
-        print('Computing initial generated quantities...')
-        self.filecoin_df['day_pledge_per_QAP'] = constants.SECTOR_SIZE * (self.filecoin_df['day_locked_pledge']-self.filecoin_df['day_renewed_pledge'])/day_onboarded_power_QAP
-        self.filecoin_df['day_rewards_per_sector'] = constants.SECTOR_SIZE * self.filecoin_df['day_network_reward'] / network_QAP
         
     def _compute_macro(self, date_in):
-        # compute Macro econometrics (Power statistics)
+        # aggregate Power statistics from agents
         total_rb_delta, total_qa_delta = 0, 0
         total_onboarded_rb_delta, total_renewed_rb_delta, total_se_rb_delta, total_terminated_rb_delta = 0, 0, 0, 0
         total_onboarded_qa_delta, total_renewed_qa_delta, total_se_qa_delta, total_terminated_qa_delta = 0, 0, 0, 0
@@ -600,13 +626,6 @@ class FilecoinModel(mesa.Model):
 
         total_rb_delta += (total_onboarded_rb_delta + total_renewed_rb_delta - total_se_rb_delta - total_terminated_rb_delta)
         total_qa_delta += (total_onboarded_qa_delta + total_renewed_qa_delta - total_se_qa_delta - total_terminated_qa_delta)
-
-        # TODO: unsure why this is failing w/ greedy agents?
-        # # Error Checking to ensure that network constants are being respected by
-        # # the agents
-        # if total_onboarded_rb_delta > constants.MAX_DAY_ONBOARD_RBP_PIB:
-        #     raise ValueError("Agents are trying to onboard more than the max allowed RBP PIB per day by a total of: %0.02f" % \
-        #         (total_onboarded_rb_delta - constants.MAX_DAY_ONBOARD_RBP_PIB))
 
         out_dict = {
             'date': date_in,
@@ -658,6 +677,29 @@ class FilecoinModel(mesa.Model):
         cum_network_reward = cum_baseline_reward + self.filecoin_df.loc[day_idx, 'cum_simple_reward']
         self.filecoin_df.loc[day_idx, 'cum_network_reward'] = cum_network_reward
         self.filecoin_df.loc[day_idx, 'day_network_reward'] = cum_network_reward - self.filecoin_df.loc[day_idx-1, 'cum_network_reward']
+        self.filecoin_df.loc[day_idx, 'day_simple_reward'] = self.filecoin_df.loc[day_idx, 'cum_simple_reward'] - self.filecoin_df.loc[day_idx-1, 'cum_simple_reward']
+
+    def _aggregate_terminations(self, update_day=None):
+        day_idx = self.current_day if update_day is None else update_day
+        date_in = self.filecoin_df.loc[day_idx, "date"]
+
+        for agent_info in self.agents:
+            agent = agent_info['agent']
+            agent_df_idx = agent.accounting_df[agent.accounting_df['date'] == date_in].index[0]
+            self.filecoin_df.loc[day_idx, "burn_from_terminations"] += agent.accounting_df.loc[agent_df_idx, "termination_burned_FIL"]
+
+            # pledge shift is taken care of when the agent calls _release_pledge
+
+            # reward vesting is taken care of within the agent
+
+    def _release_pledge(self, date_from, date_to, FIL_amt):
+        date_from_idx = self.filecoin_df[self.filecoin_df['date'] == date_from].index[0] if date_from is not None else None
+        date_to_idx = self.filecoin_df[self.filecoin_df['date'] == date_to].index[0]
+
+        self.filecoin_df.loc[date_to_idx, 'scheduled_pledge_release'] += FIL_amt
+        if date_from_idx is not None:
+            self.filecoin_df.loc[date_from_idx, 'scheduled_pledge_release'] -= FIL_amt
+        # print(f"Released {FIL_amt} FIL from pledge from {date_from} to {date_to}")
 
     def _update_sched_expire_pledge(self, date_in, update_filecoin_df=True):
         """
@@ -679,12 +721,20 @@ class FilecoinModel(mesa.Model):
         day_network_reward = self.filecoin_df.loc[day_idx, "day_network_reward"]
         prev_circ_supply = self.filecoin_df.loc[day_idx-1, "circ_supply"]
         
+        aggregate_rr = 1.0
         for agent_info in self.agents:
             agent = agent_info['agent']
             agent_day_power_stats = agent.get_power_at_date(date_in)
         
             day_onboarded_qap = agent_day_power_stats['day_onboarded_qa_power_pib'] * constants.PIB
             day_renewed_qap = agent_day_power_stats['extended_qa_pib'] * constants.PIB
+            
+            if self.pledge_onboard_ratio_callable_kwargs_fn is None:
+                pledge_onboard_ratio_callable_kwargs = {}
+            else:
+                pledge_onboard_ratio_callable_kwargs = self.pledge_onboard_ratio_callable_kwargs_fn(
+                    date_in, self.filecoin_df.iloc[day_idx-1], self.lock_target
+                )
             
             # compute total pledge this agent will locked
             onboards_locked = locking.compute_new_pledge_for_added_power(
@@ -694,6 +744,8 @@ class FilecoinModel(mesa.Model):
                 total_qa,
                 baseline_power,
                 self.lock_target,
+                self.pledge_onboard_ratio_callable,
+                pledge_onboard_ratio_callable_kwargs
             )
             renews_locked = locking.compute_new_pledge_for_added_power(
                 day_network_reward,
@@ -702,14 +754,27 @@ class FilecoinModel(mesa.Model):
                 total_qa,
                 baseline_power,
                 self.lock_target,
+                self.pledge_onboard_ratio_callable,
+                pledge_onboard_ratio_callable_kwargs
             )
-            # NOTE: we can store this information back into the agent so that the agent knows
-            # how much pledge it has locked. That can be part of the agent's calculation for 
-            # how to proceed, based on its limited capital.
 
-            # get the original pledge that was scheduled to expire on this day
-            original_pledge = agent.accounting_df.loc[day_idx, "renew_scheduled_pledge_release_FIL"]
-            renews_locked = max(original_pledge, renews_locked) if day_renewed_qap > 0 else 0
+            # get the original pledge that was scheduled to expire on this day 
+            original_pledge = agent.accounting_df.loc[day_idx, "scheduled_pledge_release"]
+
+            # scale it by the amount that was renewed
+            agent_day_renewed_qap = agent_day_power_stats['extended_qa_pib'] * constants.PIB
+            agent_day_se_qap = agent_day_power_stats['sched_expire_qa_pib'] * constants.PIB
+            if agent_day_se_qap == 0 and agent_day_renewed_qap > 0:
+                agent_rr = 1.0
+            elif agent_day_se_qap < 0 or agent_day_renewed_qap == 0:
+                agent_rr = 0.0
+            else:
+                agent_rr = agent_day_renewed_qap / agent_day_se_qap
+            agent_rr = np.clip(agent_rr, 0, 1)
+            aggregate_rr *= agent_rr
+
+            original_pledge_for_renew = original_pledge * agent_rr
+            renews_locked = max(original_pledge_for_renew, renews_locked)
 
             onboarded_qa_duration = agent_day_power_stats['day_onboarded_qa_duration']
             renewed_qa_duration = agent_day_power_stats['extended_qa_duration']
@@ -719,74 +784,99 @@ class FilecoinModel(mesa.Model):
             if day_idx + onboarded_qa_duration < len(self.filecoin_df):
                 if update_filecoin_df:
                     self.filecoin_df.loc[day_idx + onboarded_qa_duration, "scheduled_pledge_release"] += onboards_locked
-                agent.accounting_df.loc[day_idx + onboarded_qa_duration, "onboard_scheduled_pledge_release_FIL"] += onboards_locked
+                    
+                    agent.accounting_df.loc[day_idx + onboarded_qa_duration, "onboard_scheduled_pledge_release_FIL"] += onboards_locked
+                    agent.accounting_df.loc[day_idx + onboarded_qa_duration, "scheduled_pledge_release"] += onboards_locked
 
             agent.accounting_df.loc[day_idx, "renew_pledge_FIL"] += renews_locked
             if day_idx + renewed_qa_duration < len(self.filecoin_df):
                 if update_filecoin_df:
                     self.filecoin_df.loc[day_idx + renewed_qa_duration, "scheduled_pledge_release"] += renews_locked
-                agent.accounting_df.loc[day_idx + renewed_qa_duration, "renew_scheduled_pledge_release_FIL"] += renews_locked
-            
+                    
+                    agent.accounting_df.loc[day_idx + renewed_qa_duration, "renew_scheduled_pledge_release_FIL"] += renews_locked
+                    agent.accounting_df.loc[day_idx + renewed_qa_duration, "scheduled_pledge_release"] += renews_locked
+
+            # for debugging
+            self.filecoin_df.loc[day_idx, "original_pledge"] += original_pledge_for_renew
+        self.filecoin_df.loc[day_idx, "renewal_rate"] = aggregate_rr
+    
     def _update_circulating_supply(self, update_day=None):
         day_idx = self.current_day if update_day is None else update_day
+        current_date = self.filecoin_df.iloc[day_idx]["date"]
 
-        # day_pledge_locked_vec = self.filecoin_df["day_locked_pledge"].values
-        day_onboarded_power_QAP = self.filecoin_df.iloc[day_idx]["day_onboarded_qap_pib"] * constants.PIB   # in bytes
-        day_renewed_power_QAP = self.filecoin_df.iloc[day_idx]["day_renewed_qap_pib"] * constants.PIB       # in bytes
         network_QAP = self.filecoin_df.iloc[day_idx]["total_qa_power_eib"] * constants.EIB                  # in bytes
         network_baseline = self.filecoin_df.iloc[day_idx]["network_baseline"]                               # in bytes
         day_network_reward = self.filecoin_df.iloc[day_idx]["day_network_reward"]
         
-        day_sched_expire_rbp_pib = self.filecoin_df.iloc[day_idx]["day_sched_expire_rbp_pib"]
-        if day_sched_expire_rbp_pib == 0:
-            renewal_rate = 0.0
-        else:
-            renewal_rate = self.filecoin_df.iloc[day_idx]["day_renewed_rbp_pib"] / day_sched_expire_rbp_pib
-
         prev_network_locked_reward = self.filecoin_df.iloc[day_idx-1]["network_locked_reward"]
         prev_network_locked_pledge = self.filecoin_df.iloc[day_idx-1]["network_locked_pledge"]
         prev_network_locked = self.filecoin_df.iloc[day_idx-1]["network_locked"]
 
         prev_circ_supply = self.filecoin_df["circ_supply"].iloc[day_idx-1]
 
-        # scheduled_pledge_release = supply.get_day_schedule_pledge_release(
-        #     day_idx,
-        #     self.current_day,
-        #     day_pledge_locked_vec,
-        #     self.known_scheduled_pledge_release_full_vec,
-        #     self.sector_duration,
-        # )
-        scheduled_pledge_release = self.filecoin_df["scheduled_pledge_release"].iloc[day_idx]
-        pledge_delta = supply.compute_day_delta_pledge(
-            day_network_reward,
-            prev_circ_supply,
-            day_onboarded_power_QAP,
-            day_renewed_power_QAP,
-            network_QAP,
-            network_baseline,
-            renewal_rate,
-            scheduled_pledge_release,
-            self.lock_target,
-        )
-        # Get total locked pledge (needed for future day_locked_pledge)
-        day_locked_pledge, day_renewed_pledge = supply.compute_day_locked_pledge(
-            day_network_reward,
-            prev_circ_supply,
-            day_onboarded_power_QAP,
-            day_renewed_power_QAP,
-            network_QAP,
-            network_baseline,
-            renewal_rate,
-            scheduled_pledge_release,
-            self.lock_target,
-        )
+        # do this per agent rather than in aggregate to account for different renewal rates
+        # of different agents properly
+        pledge_delta = 0
+        day_locked_pledge = 0
+        day_renewed_pledge = 0
+        for agent_info in self.agents:
+            agent = agent_info['agent']
+
+            day_locked_pledge += (agent.accounting_df["onboard_pledge_FIL"].iloc[day_idx] + agent.accounting_df["renew_pledge_FIL"].iloc[day_idx])
+            day_renewed_pledge += agent.accounting_df["renew_pledge_FIL"].iloc[day_idx]
+        
+            # print(current_date)
+            # print(agent.agent_info_df.iloc[0])
+            ix = np.where(agent.t == current_date)[0][0]
+            agent_onboarded_qap = agent.onboarded_power[ix][1].pib * constants.PIB
+            agent_renewed_qap = agent.renewed_power[ix][1].pib * constants.PIB
+            agent_se_qap = agent.scheduled_expire_power[ix][1].pib * constants.PIB
+
+            # agent_rr = agent_renewed_qap / agent_se_qap
+            if agent_se_qap == 0 and agent_renewed_qap > 0:
+                agent_rr = 1.0
+            elif agent_se_qap < 0 or agent_renewed_qap == 0:
+                agent_rr = 0.0
+            else:
+                agent_rr = agent_renewed_qap / agent_se_qap
+            agent_rr = np.clip(agent_rr, 0, 1)
+            
+            agent_accounting_df_idx = agent.accounting_df[pd.to_datetime(agent.accounting_df['date']) == pd.to_datetime(current_date)].index[0]
+            agent_scheduled_pledge_release = agent.accounting_df["scheduled_pledge_release"].iloc[agent_accounting_df_idx]
+
+            if self.pledge_onboard_ratio_callable_kwargs_fn is None:
+                pledge_onboard_ratio_callable_kwargs = {}
+            else:
+                pledge_onboard_ratio_callable_kwargs = self.pledge_onboard_ratio_callable_kwargs_fn(
+                    current_date, self.filecoin_df.iloc[day_idx-1], self.lock_target
+                )
+
+            agent_pledge_delta = locking.compute_day_delta_pledge(
+                day_network_reward,
+                prev_circ_supply,
+                agent_onboarded_qap,
+                agent_renewed_qap,
+                network_QAP,
+                network_baseline,
+                agent_rr,
+                agent_scheduled_pledge_release,
+                self.lock_target,
+                onboard_ratio_callable=self.pledge_onboard_ratio_callable,
+                onboard_ratio_callable_kwargs=pledge_onboard_ratio_callable_kwargs
+            )
+            pledge_delta += agent_pledge_delta
+
         # Compute daily change in block rewards collateral
-        day_locked_rewards = supply.compute_day_locked_rewards(day_network_reward)
-        day_reward_release = supply.compute_day_reward_release(prev_network_locked_reward)
+        day_locked_rewards = locking.compute_day_locked_rewards(day_network_reward)
+        day_reward_release = locking.compute_day_reward_release(prev_network_locked_reward)
         reward_delta = day_locked_rewards - day_reward_release
         
         # Update dataframe
-        self.filecoin_df.loc[day_idx, "day_locked_pledge"] = day_locked_pledge
+        self.filecoin_df.loc[day_idx, "pledge_delta"] = pledge_delta
+        self.filecoin_df.loc[day_idx, "reward_delta"] = reward_delta
+
+        # TODO: do we need to update day_locked_pledge from terminations? don't think so, but need to confirm
+        self.filecoin_df.loc[day_idx, "day_locked_pledge"] = day_locked_pledge 
         self.filecoin_df.loc[day_idx, "day_renewed_pledge"] = day_renewed_pledge
         self.filecoin_df.loc[day_idx, "network_locked_pledge"] = (
             prev_network_locked_pledge + pledge_delta
@@ -809,11 +899,13 @@ class FilecoinModel(mesa.Model):
             + self.filecoin_df["total_vest"].iloc[day_idx]  # from vesting_model
             - self.filecoin_df["network_locked"].iloc[day_idx]  # from simulation loop
             - self.filecoin_df["network_gas_burn"].iloc[day_idx]  # comes from user inputs
+            - self.filecoin_df['burn_from_terminations'].iloc[day_idx]  # from agent decisions
         )
         self.filecoin_df.loc[day_idx, "circ_supply"] = max(circ_supply, 0)
 
     def _update_generated_quantities(self, update_day=None):
         day_idx = self.current_day if update_day is None else update_day
+        update_date = self.filecoin_df.iloc[day_idx]['date']
 
         # add ROI to trajectory df
         day_locked_pledge = self.filecoin_df.loc[day_idx, 'day_locked_pledge']
@@ -822,34 +914,52 @@ class FilecoinModel(mesa.Model):
         day_onboarded_power_QAP = max(self.filecoin_df.loc[day_idx, "day_onboarded_qap_pib"] * constants.PIB, constants.MIN_VALUE)   # in bytes
         self.filecoin_df.loc[day_idx, 'day_pledge_per_QAP'] = constants.SECTOR_SIZE * (day_locked_pledge-day_renewed_pledge)/day_onboarded_power_QAP
 
+        # print(update_date, day_locked_pledge, day_renewed_pledge, day_onboarded_power_QAP, self.filecoin_df.loc[day_idx, 'day_pledge_per_QAP'])
+
         day_network_reward = self.filecoin_df.iloc[day_idx]["day_network_reward"]
         # FLAG: avoid division by zero - does it make sense to do this?
         network_QAP = max(self.filecoin_df.iloc[day_idx]["total_qa_power_eib"] * constants.EIB, constants.MIN_VALUE)                  # in bytes
         self.filecoin_df.loc[day_idx, 'day_rewards_per_sector'] = constants.SECTOR_SIZE * day_network_reward / network_QAP
         
-        
+    def _get_agent_power_proportion(self, update_day=None):
+        day_idx = self.current_day if update_day is None else update_day
+        date_in = self.filecoin_df.iloc[day_idx]['date']
+
+        total_network_qap = self.filecoin_df.iloc[day_idx]["total_qa_power_eib"] * constants.EIB
+        agent_power_proportion_vec = np.zeros(len(self.agents))
+        for ii, agent_info in enumerate(self.agents):
+            agent = agent_info['agent']
+
+            total_agent_qap = agent.get_active_qa_power_at_date(date_in) * constants.PIB
+            agent_power_proportion = min(total_agent_qap/total_network_qap, 1.0) # account for numerical issues
+            agent_power_proportion_vec[ii] = agent_power_proportion
+            
+        # print(agent_power_proportion_vec, sum(agent_power_proportion_vec))
+        agent_power_proportion_vec = agent_power_proportion_vec / sum(agent_power_proportion_vec)
+        agentid2power_proportion = {}
+        for ii, agent_info in enumerate(self.agents):
+            agent = agent_info['agent']
+            agentid2power_proportion[agent.unique_id] = agent_power_proportion_vec[ii]
+
+        return agent_power_proportion_vec, agentid2power_proportion
+
     def _update_agents(self, update_day=None):
         day_idx = self.current_day if update_day is None else update_day
         date_in = self.filecoin_df.iloc[day_idx]['date']
 
         total_day_rewards = self.filecoin_df.iloc[day_idx]["day_network_reward"]
-        total_day_onboard_and_renew_pib = self.filecoin_df.iloc[day_idx]["day_onboarded_qap_pib"] +  self.filecoin_df.iloc[day_idx]["day_renewed_qap_pib"]
+        agent_reward_ratio_vec, _ = self._get_agent_power_proportion(update_day=day_idx)
 
-        # TODO: add termination penalties here
-
-        # total_day_capital_inflow_FIL = self.filecoin_df.loc[day_idx, 'capital_inflow_FIL']
-        for agent_info in self.agents:
+        debug_agent_qap_sum = 0
+        for ii, agent_info in enumerate(self.agents):
             agent = agent_info['agent']
-            agent_day_power_stats = agent.get_power_at_date(date_in)
-        
-            day_onboarded_qap = agent_day_power_stats['day_onboarded_qa_power_pib']
-            day_renewed_qap = agent_day_power_stats['extended_qa_pib']
-            total_agent_qap_onboarded = day_onboarded_qap + day_renewed_qap
-            agent_reward_ratio = min(total_agent_qap_onboarded/total_day_onboard_and_renew_pib, 1.0) # account for numerical issues
-            # print(agent.unique_id, date_in, day_onboarded_qap, day_renewed_qap, total_day_onboard_and_renew_pib)
+            
+            total_agent_qap = agent.get_active_qa_power_at_date(date_in) * constants.PIB
+            debug_agent_qap_sum += total_agent_qap
+            # agent_reward_ratio = min(total_agent_qap/total_network_qap, 1.0) # account for numerical issues
+            agent_reward_ratio = agent_reward_ratio_vec[ii]
             agent_reward = total_day_rewards * agent_reward_ratio
 
-            # agent_network_df = agent_info['network_updates_df']
             agent_accounting_df = agent.accounting_df
             accounting_df_idx = agent_accounting_df[agent_accounting_df['date'] == date_in].index[0]
 
@@ -859,15 +969,11 @@ class FilecoinModel(mesa.Model):
             # remainder vests linearly over the next 180 days
             agent_accounting_df.loc[accounting_df_idx+1:accounting_df_idx+180, 'reward_FIL'] += (agent_reward * 0.75)/180
 
-            # # if there is any capital inflow FIL, distribute it to the agents according to the inflow distribution policy
-            # if total_day_capital_inflow_FIL > 0.0:
-            #     # TODO: need to figure out how to generalize the inputs to the distribution inflow policy function
-            #     FIL_to_agent = math.floor(self.capital_inflow_distribution_policy(total_agent_qap_onboarded, 
-            #                                                                       total_day_onboard_and_renew_pib, 
-            #                                                                       total_day_capital_inflow_FIL))
-            #     agent.accounting_df.loc[accounting_df_idx, 'capital_inflow_FIL'] += FIL_to_agent
+            agent_accounting_df.loc[accounting_df_idx, 'full_reward_for_power_FIL'] += agent_reward
 
             agent.post_global_step()
+        # this delta shoudl be close to zero
+        # print(date_in, (total_network_qap-debug_agent_qap_sum)/constants.EIB)
 
     def _zero_agent_rewards(self):
         for agent_info in self.agents:

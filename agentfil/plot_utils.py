@@ -130,8 +130,8 @@ def plot_agent(
         y_post_fn = lambda x: x
     else:
         y_post_fn = y_post_process
-        if y_post_kwargs is None:
-            y_post_kwargs = {}
+    if y_post_kwargs is None:
+        y_post_kwargs = {}
     
     # read all of the agent infos into memory
     agent2agentinfo, agent2accountinginfo = get_agent_dfs(results_root_dir, experiment_dir)
